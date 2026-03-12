@@ -5,8 +5,9 @@
 lr=5e-6
 
 # Model="codellama/CodeLlama-7b-hf"
+# ModelName="CodeLlama-7b-hf"
 Model="gpt2"
-ModelName="CodeLlama-7b-hf"
+ModelName="gpt2"
 # ModelPath="learned_model"
 # ModelPath="codellama/CodeLlama-7b-hf"
 ModelPath="gpt2"
@@ -55,9 +56,8 @@ python test_model_utility.py \
 --output-file-suffix ${suffix}
 
 python evaluate.py \
-# --dataset ${DatasetPath} \
 --dataset HumanEval \
---input_path ${OutputDir}/${filename}/model_utility/${DatasetPath}_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl \
+--input_path ${OutputDir}/${filename}/model_utility/HumanEval_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl
 --truncate \
 --eval_standard
 
