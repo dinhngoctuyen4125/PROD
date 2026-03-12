@@ -55,7 +55,8 @@ python test_model_utility.py \
 --output-file-suffix ${suffix}
 
 python evaluate.py \
---dataset ${DatasetPath} \
+# --dataset ${DatasetPath} \
+--dataset HumanEval \
 --input_path ${OutputDir}/${filename}/model_utility/${DatasetPath}_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl \
 --truncate \
 --eval_standard
