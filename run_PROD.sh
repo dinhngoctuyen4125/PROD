@@ -4,14 +4,12 @@
 
 lr=5e-6
 
-# Model="codellama/CodeLlama-7b-hf"
-# ModelName="CodeLlama-7b-hf"
-Model="gpt2"
-ModelName="gpt2"
-# ModelPath="learned_model"
-# ModelPath="codellama/CodeLlama-7b-hf"
-ModelPath="gpt2"
-# DatasetPath="data/forget_set_100"
+Model="codellama/CodeLlama-7b-hf"
+ModelName="CodeLlama-7b-hf"
+# Model="gpt2"
+# ModelName="gpt2"
+ModelPath="codellama/CodeLlama-7b-hf"
+# ModelPath="gpt2"
 DatasetPath="data/forget_data"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
