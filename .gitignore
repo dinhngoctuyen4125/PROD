@@ -1,0 +1,15 @@
+.DS_Store
+venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Training logs
+wandb/
+
+# Model / outputs
+outputs/
+
+# VSCode
+.vscode/
