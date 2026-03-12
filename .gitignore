@@ -9,7 +9,7 @@ __pycache__/
 wandb/
 
 # Model / outputs
-outputs/
+# outputs/
 
 # VSCode
 .vscode/
