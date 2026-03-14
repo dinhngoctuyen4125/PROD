@@ -13,7 +13,7 @@ ModelPath="gpt2"
 DatasetPath="data/forget_data"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-venv/Scripts/python.exe PROD.py \
+python PROD.py \
 --model_name ${Model} \
 --model_path ${ModelPath} \
 --output_dir ${SaveModelPath} \
@@ -36,7 +36,7 @@ filename=$(basename "$file")
 echo "Filename: ${filename}, Path: ${file}"
 
 # /mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe test_forget_quality.py \
-venv/Scripts/python.exe test_forget_quality.py \
+python test_forget_quality.py \
 --model_name ${ModelName} \
 --model_path ${file} \
 --dataset ${DatasetPath} \
@@ -46,7 +46,7 @@ venv/Scripts/python.exe test_forget_quality.py \
 --output-file-suffix ${suffix}
 
 # /mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe test_model_utility.py \
-venv/Scripts/python.exe test_model_utility.py \
+python test_model_utility.py \
 --model_name ${ModelName} \
 --model_path ${file} \
 --dataset "HumanEval" \
@@ -55,7 +55,7 @@ venv/Scripts/python.exe test_model_utility.py \
 --output-dir ${OutputDir}/${filename}/model_utility \
 --output-file-suffix ${suffix}
 
-venv/Scripts/python.exe evaluate.py \
+python evaluate.py \
 --dataset HumanEval \
 --input_path ${OutputDir}/${filename}/model_utility/HumanEval_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl \
 --truncate \
