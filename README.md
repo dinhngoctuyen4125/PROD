@@ -16,7 +16,6 @@ python -m pip install --upgrade pip
 
 ```bash
 pip install -r requirements.txt
-pip -q install tqdm numpy torch wandb datasets transformers nltk accelerate astor
 ```
 
 ### 4. Run the Experiments
