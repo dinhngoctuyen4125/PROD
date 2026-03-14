@@ -4,16 +4,16 @@
 
 lr=5e-6
 
-Model="codellama/CodeLlama-7b-hf"
-ModelName="CodeLlama-7b-hf"
-# Model="gpt2"
-# ModelName="gpt2"
-ModelPath="codellama/CodeLlama-7b-hf"
-# ModelPath="gpt2"
+# Model="codellama/CodeLlama-7b-hf"
+# ModelName="CodeLlama-7b-hf"
+Model="gpt2"
+ModelName="gpt2"
+# ModelPath="codellama/CodeLlama-7b-hf"
+ModelPath="gpt2"
 DatasetPath="data/forget_data"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-python PROD.py \
+/mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe PROD.py \
 --model_name ${Model} \
 --model_path ${ModelPath} \
 --output_dir ${SaveModelPath} \
@@ -35,7 +35,7 @@ for file in "$SaveModelPath"/*; do
 filename=$(basename "$file")
 echo "Filename: ${filename}, Path: ${file}"
 
-python test_forget_quality.py \
+/mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe test_forget_quality.py \
 --model_name ${ModelName} \
 --model_path ${file} \
 --dataset ${DatasetPath} \
@@ -44,7 +44,7 @@ python test_forget_quality.py \
 --output-dir ${OutputDir}/${filename}/forget_quality \
 --output-file-suffix ${suffix}
 
-python test_model_utility.py \
+/mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe test_model_utility.py \
 --model_name ${ModelName} \
 --model_path ${file} \
 --dataset "HumanEval" \
@@ -53,7 +53,7 @@ python test_model_utility.py \
 --output-dir ${OutputDir}/${filename}/model_utility \
 --output-file-suffix ${suffix}
 
-python evaluate.py \
+/mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe evaluate.py \
 --dataset HumanEval \
 --input_path ${OutputDir}/${filename}/model_utility/HumanEval_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl \
 --truncate \
