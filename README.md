@@ -1,15 +1,25 @@
-# Large Language Model Unlearning for Source Code
+### 1. Clone the Repository
+```bash
+git clone https://github.com/dinhngoctuyen4125/PROD.git
+cd PROD
+````
 
-This repository contains the code and data for the paper titled **Large Language Model Unlearning for Source Code**.
+### 2. Set Up the Python Environment
 
-### 1. Set Up the Environment
-Install the required dependencies using `requirements.txt`:
+```bash
+python -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+### 3. Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run the Experiments
-Execute the `run_PROD.sh` script to run the experiments:
+### 4. Run the Experiments
+
 ```bash
 bash run_PROD.sh
 ```
