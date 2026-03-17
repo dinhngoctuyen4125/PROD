@@ -6,10 +6,7 @@ lr=5e-6
 
 Model="codellama/CodeLlama-7b-hf"
 ModelName="CodeLlama-7b-hf"
-# Model="gpt2"
-# ModelName="gpt2"
 ModelPath="codellama/CodeLlama-7b-hf"
-# ModelPath="gpt2"
 DatasetPath="data/forget_data"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
@@ -35,7 +32,6 @@ for file in "$SaveModelPath"/*; do
 filename=$(basename "$file")
 echo "Filename: ${filename}, Path: ${file}"
 
-# /mnt/c/Users/tuyen/AppData/Local/Programs/Python/Python311/python.exe test_forget_quality.py \
 python test_forget_quality.py \
 --model_name ${ModelName} \
 --model_path ${file} \

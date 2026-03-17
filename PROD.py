@@ -94,13 +94,10 @@ def collate_fn(batch, tokenizer, max_length, device):
     prompts = [item['prompt']for item in batch]
     rejected_responses = [item['canonical_solution'] for item in batch]
 
-    # prompt_ids = tokenizer.batch_encode_plus(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
-    # disprefered_ids = tokenizer.batch_encode_plus(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
     disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
 
     prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
-
     prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
 
     return {'prompt_disprefered_ids': prompt_disprefered_ids,
@@ -157,8 +154,8 @@ class CustomArguments:
     model_name: str = field(default='codellama/CodeLlama-7b-hf')
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
-    train_data_path: str = field(default='data/forget_set_100')
-    max_seq_length: int = field(default=1024) # SỬA TỪ 1024 XUỐNG 128 ĐỂ TEST
+    train_data_path: str = field(default='data/forget_data')
+    max_seq_length: int = field(default=1024)
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
     temperature: float = field(default=None)
