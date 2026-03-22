@@ -21,11 +21,11 @@ def sample_code_from_llm(args, prompt, model, tokenizer):
 
     if tokenizer.bos_token_id:
         input_ids = [tokenizer.bos_token_id] + tokenizer.encode(prompt, add_special_tokens=False, verbose=False) 
-        input_ids = torch.tensor([input_ids]).to("cuda:0")
+        input_ids = torch.tensor([input_ids]).to(model.device)
         eos_token = tokenizer.eos_token_id        
     else:
         input_ids = tokenizer.encode(prompt, add_special_tokens=False, verbose=False) 
-        input_ids = torch.tensor([input_ids]).to("cuda:0")
+        input_ids = torch.tensor([input_ids]).to(model.device)
         eos_token = tokenizer.eos_token_id
 
     num_return_sequences = args.acctual_num_samples
@@ -79,7 +79,7 @@ def load_model_tokenizer(args, model_name, model_path):
         
     model = AutoModelForCausalLM.from_pretrained(
         model_path, low_cpu_mem_usage=True, torch_dtype=torch.float32,
-        device_map={"": 0}
+        device_map="auto"
     )
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
