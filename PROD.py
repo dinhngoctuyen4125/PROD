@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from dataclasses import dataclass, field
 
-from datasets import load_from_disk
+from datasets import load_dataset
+# from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModelForCausalLM, HfArgumentParser,Seq2SeqTrainingArguments
 
 
@@ -75,6 +76,7 @@ def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.
         mask = F.one_hot(labels, num_classes=copied_logits.size(-1)) & mask_start.unsqueeze(-1)
         copied_logits = copied_logits.masked_fill(mask.bool(), -float('inf'))
 
+        # lọc chỉ giữ lại top_p token có xác suất cao nhất
         filtered_logit = top_p_filtering(copied_logits, top_p=top_p, N=N, max_N=max_N, filter_value=-float('inf'))
 
         if temperature is None:
@@ -87,12 +89,14 @@ def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.
         one_hot = F.one_hot(labels, num_classes=probs.size(-1)).bool()
         ground_truth_probs = torch.where(one_hot, -alpha*probs[..., :-1, :], ground_truth_probs)
 
+    # trả về: xác suất gốc + xác suất đã điều chỉnh
     return probs, ground_truth_probs
 
 
 def collate_fn(batch, tokenizer, max_length, device):
     prompts = [item['prompt']for item in batch]
-    rejected_responses = [item['canonical_solution'] for item in batch]
+    # rejected_responses = [item['canonical_solution'] for item in batch]
+    rejected_responses = [item['target'] for item in batch]
 
     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
     disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
@@ -112,10 +116,12 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
         optimizer.zero_grad()
         
         for step, batch in enumerate(tqdm(train_dataloader)):
+            # prompt_disprefered_ids: token ids của prompt + response bị từ chối
             prompt_disprefered_ids = batch['prompt_disprefered_ids']
             prompt_disprefered_mask = batch['prompt_disprefered_mask']
 
             with torch.no_grad():
+                # lấy ra ppsx gốc + sau khi điều chỉnh
                 _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
                                                                        prompt_disprefered_ids, 
                                                                        top_p=top_p, 
@@ -124,6 +130,7 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
                                                                        N=N, 
                                                                        max_N=max_N)
 
+            # tính loss và backprop
             model_disprefered_logits = model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits
 
             loss = calculate_loss(model_disprefered_logits, ground_truth_distribution)
@@ -154,8 +161,8 @@ class CustomArguments:
     model_name: str = field(default='codellama/CodeLlama-7b-hf')
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
-    train_data_path: str = field(default='data/forget_data')
-    max_seq_length: int = field(default=1024)
+    train_data_path: str = field(default='data/forget_data/merged_deprecated_apis.json')
+    max_seq_length: int = field(default=128)
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
     temperature: float = field(default=None)
@@ -229,7 +236,8 @@ def main():
     # use parameters from training_args to set up optimizer
     optimizer = AdamW(model.parameters(), lr=training_args.learning_rate, eps=training_args.adam_epsilon, weight_decay=training_args.weight_decay, betas=(training_args.adam_beta1, training_args.adam_beta2))
 
-    dataset = load_from_disk(custom_args.train_data_path)
+    # dataset = load_from_disk(custom_args.train_data_path)
+    dataset = load_dataset('json', data_files=custom_args.train_data_path)['train']
     train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=training_args.per_device_train_batch_size, shuffle=True, collate_fn=partial(collate_fn, tokenizer=tokenizer, max_length=custom_args.max_seq_length, device=device))
 
     train(model, 

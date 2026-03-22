@@ -8,7 +8,8 @@ from tqdm import tqdm
 from nltk.translate.bleu_score import sentence_bleu
 
 
-from datasets import load_dataset, load_from_disk
+# from datasets import load_dataset, load_from_disk
+from datasets import load_dataset
 from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer
 
 set_seed(42)
@@ -102,18 +103,21 @@ def generate_code_for_tasks(args, except_tasks, save_file):
     generate_code_fn, tokenizer = load_model_tokenizer(args, args.model_name, args.model_path)
 
     # load dataset
-    dataset = load_from_disk(args.dataset)
+    # dataset = load_from_disk(args.dataset)
+    dataset = load_dataset('json', data_files=args.dataset)['train']
 
     AVG_BLEU = 0
     for i in tqdm(range(len(dataset))):
-        task_id = dataset[i]["task_id"]
+        # task_id = dataset[i]["task_id"]
+        task_id = f"{dataset[i].get('dependency', 'task')}_{i}"
 
         if (task_id in except_tasks):
             continue
 
         # construct prompt
         prompt = dataset[i]["prompt"]
-        ground_truth = dataset[i]["canonical_solution"]
+        # ground_truth = dataset[i]["canonical_solution"]
+        ground_truth = dataset[i]["target"]
 
         if prompt == "":
             canonical_solution = ground_truth.split(" ")
