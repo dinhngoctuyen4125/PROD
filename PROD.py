@@ -9,7 +9,6 @@ from torch.optim import AdamW
 from dataclasses import dataclass, field
 
 from datasets import load_dataset
-# from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModelForCausalLM, HfArgumentParser,Seq2SeqTrainingArguments
 
 
@@ -226,11 +225,12 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    from accelerate import Accelerator
-    accelerator = Accelerator()
-    device = accelerator.device
-    model = accelerator.prepare(model)
-    ref_model = accelerator.prepare(ref_model)
+    # from accelerate import Accelerator
+    # accelerator = Accelerator()
+    # device = accelerator.device
+    # model = accelerator.prepare(model)
+    # ref_model = accelerator.prepare(ref_model)
+    device = model.device
     # -----------
 
     # use parameters from training_args to set up optimizer
