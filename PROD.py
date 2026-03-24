@@ -97,6 +97,7 @@ def collate_fn(batch, tokenizer, max_length, device):
     # rejected_responses = [item['canonical_solution'] for item in batch]
     rejected_responses = [item['target'] for item in batch]
 
+    ###############
     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
     disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
 
@@ -161,7 +162,7 @@ class CustomArguments:
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
     train_data_path: str = field(default='data/forget_data/merged_deprecated_apis.json')
-    max_seq_length: int = field(default=128)
+    max_seq_length: int = field(default=128) ###################
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
     temperature: float = field(default=None)
