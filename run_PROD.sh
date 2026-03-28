@@ -13,7 +13,7 @@ ModelPath="gpt2"
 DatasetPath="data/forget_data/merged_deprecated_apis.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-python PROD.py \
+CUDA_LAUNCH_BLOCKING=1 python PROD.py \
 --model_name ${Model} \
 --model_path ${ModelPath} \
 --output_dir ${SaveModelPath} \

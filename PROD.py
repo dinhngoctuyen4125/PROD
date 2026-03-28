@@ -207,12 +207,12 @@ def main():
             ref_model_max_memory[i] = f'{total_memory[i]}GB'
 
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto")
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map={"": 0})
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
     # ------------------
-    ref_model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto")
+    ref_model = AutoModelForCausalLM.from_pretrained(model_path, device_map={"": 0})
     ref_model.config.use_cache = False
     ref_model.config.pretraining_tp = 1
     ref_model.eval()
