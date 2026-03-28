@@ -104,6 +104,8 @@ def collate_fn(batch, tokenizer, max_length, device):
     prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
     prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
 
+    prompt_disprefered_ids = torch.clamp(prompt_disprefered_ids, min=0, max=tokenizer.vocab_size - 1) #########################################################################################################
+
     return {'prompt_disprefered_ids': prompt_disprefered_ids,
             'prompt_disprefered_mask': prompt_disprefered_mask}
 
@@ -120,7 +122,7 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
             prompt_disprefered_ids = batch['prompt_disprefered_ids']
             prompt_disprefered_mask = batch['prompt_disprefered_mask']
 
-            print(f"Max token length in batch: {prompt_disprefered_ids.size(1)}")
+            print(f"Max token length in batch: {prompt_disprefered_ids.size(1)}") #####################################################################################
 
             with torch.no_grad():
                 # lấy ra ppsx gốc + sau khi điều chỉnh
