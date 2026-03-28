@@ -120,6 +120,8 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
             prompt_disprefered_ids = batch['prompt_disprefered_ids']
             prompt_disprefered_mask = batch['prompt_disprefered_mask']
 
+            print(f"Max token length in batch: {prompt_disprefered_ids.size(1)}")
+
             with torch.no_grad():
                 # lấy ra ppsx gốc + sau khi điều chỉnh
                 _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
