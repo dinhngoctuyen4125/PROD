@@ -29,7 +29,7 @@ python PROD.py \
 --save_strategy no || exit
 
 OutputDir="outputs/results/PROD_lr${lr}"
-suffix="2025"
+suffix="2026"
 
 for file in "$SaveModelPath"/*; do
 filename=$(basename "$file")
