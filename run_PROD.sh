@@ -4,12 +4,12 @@
 
 lr=5e-6
 
-# Model="codellama/CodeLlama-7b-hf"
-# ModelName="CodeLlama-7b-hf"
-# ModelPath="codellama/CodeLlama-7b-hf"
-Model="gpt2"
-ModelName="gpt2"
-ModelPath="gpt2"
+Model="codellama/CodeLlama-7b-hf"
+ModelName="CodeLlama-7b-hf"
+ModelPath="codellama/CodeLlama-7b-hf"
+# Model="gpt2"
+# ModelName="gpt2"
+# ModelPath="gpt2"
 DatasetPath="data/forget_data/merged_deprecated_apis.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
@@ -19,7 +19,7 @@ CUDA_LAUNCH_BLOCKING=1 python PROD.py \
 --output_dir ${SaveModelPath} \
 --train_data_path ${DatasetPath} \
 --alpha 0.0 \
---num_train_epochs 1 \
+--num_train_epochs 10 \
 --learning_rate ${lr} \
 --per_device_train_batch_size 1 \
 --gradient_accumulation_steps 32 \

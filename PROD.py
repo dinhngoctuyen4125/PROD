@@ -104,7 +104,7 @@ def collate_fn(batch, tokenizer, max_length, device):
     prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
     prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
 
-    prompt_disprefered_ids = torch.clamp(prompt_disprefered_ids, min=0, max=tokenizer.vocab_size - 1) #########################################################################################################
+    # prompt_disprefered_ids = torch.clamp(prompt_disprefered_ids, min=0, max=tokenizer.vocab_size - 1) #########################################################################################################
 
     return {'prompt_disprefered_ids': prompt_disprefered_ids,
             'prompt_disprefered_mask': prompt_disprefered_mask}
@@ -122,7 +122,7 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
             prompt_disprefered_ids = batch['prompt_disprefered_ids']
             prompt_disprefered_mask = batch['prompt_disprefered_mask']
 
-            print(f"Max token length in batch: {prompt_disprefered_ids.size(1)}") #####################################################################################
+            # print(f"Max token length in batch: {prompt_disprefered_ids.size(1)}") #####################################################################################
 
             with torch.no_grad():
                 # lấy ra ppsx gốc + sau khi điều chỉnh
@@ -166,7 +166,7 @@ class CustomArguments:
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
     train_data_path: str = field(default='data/forget_data/merged_deprecated_apis.json')
-    max_seq_length: int = field(default=128) ###################
+    max_seq_length: int = field(default=1024) ###################
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
     temperature: float = field(default=None)
