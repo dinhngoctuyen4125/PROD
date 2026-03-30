@@ -93,9 +93,9 @@ def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.
 
 
 def collate_fn(batch, tokenizer, max_length, device):
-    prompts = [item['prompt']for item in batch]
+    prompts = [item['input']for item in batch]
     # rejected_responses = [item['canonical_solution'] for item in batch]
-    rejected_responses = [item['target'] for item in batch]
+    rejected_responses = [item['deprecated_api'] for item in batch]
 
     ###############
     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)

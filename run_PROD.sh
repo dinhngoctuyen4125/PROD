@@ -4,16 +4,21 @@
 
 lr=5e-6
 
-Model="codellama/CodeLlama-7b-hf"
-ModelName="CodeLlama-7b-hf"
-ModelPath="codellama/CodeLlama-7b-hf"
+Model="google/codegemma-7b-it"
+ModelName="codegemma-7b-it"
+ModelPath="google/codegemma-7b-it"
+
+# Model="codellama/CodeLlama-7b-hf"
+# ModelName="CodeLlama-7b-hf"
+# ModelPath="codellama/CodeLlama-7b-hf"
+
 # Model="gpt2"
 # ModelName="gpt2"
 # ModelPath="gpt2"
-DatasetPath="data/forget_data/merged_deprecated_apis.json"
+DatasetPath="data/forget_data/codegemma.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-CUDA_LAUNCH_BLOCKING=1 python PROD.py \
+python PROD.py \
 --model_name ${Model} \
 --model_path ${ModelPath} \
 --output_dir ${SaveModelPath} \
