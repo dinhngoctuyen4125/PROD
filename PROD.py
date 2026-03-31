@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, HfArgumentParser,Seq2SeqTrainingArguments
 
-
 import wandb
 wandb.init(project="unlearn_code", name="PROD")
 
@@ -23,29 +22,36 @@ def seed_everything(seed=2003):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-
-def calculate_loss(model_disprefered_logits, ground_truth_distribution):
-    if torch.isnan(model_disprefered_logits).any():
-        print(">>> CẢNH BÁO: Phát hiện NaN trong model_disprefered_logits (Logits thô)!")
+# def calculate_loss(model_disprefered_logits, ground_truth_distribution):
     
-    model_disprefered_distribution = F.softmax(model_disprefered_logits, dim=-1)
-    
-    if torch.isnan(model_disprefered_distribution).any():
-        print(">>> CẢNH BÁO: Phát hiện NaN ngay sau hàm Softmax!")
+#     model_disprefered_distribution = F.softmax(model_disprefered_logits, dim=-1)
         
-    model_disprefered_distribution = model_disprefered_distribution[..., :-1, :].contiguous()
+#     model_disprefered_distribution = model_disprefered_distribution[..., :-1, :].contiguous()
 
-    log_probs = torch.log(model_disprefered_distribution + 1e-5)
+#     log_probs = torch.log(model_disprefered_distribution + 1e-5)
 
-    # CHỐT 3: Kiểm tra xem hàm Log có nhận phải số 0 (hoặc âm) gây ra -inf/NaN không
-    if torch.isnan(log_probs).any() or torch.isinf(log_probs).any():
-        print(">>> CẢNH BÁO: Phát hiện NaN hoặc Inf ở bước torch.log!")
-        print(">>> Giá trị nhỏ nhất trong distribution lúc này là:", torch.min(model_disprefered_distribution).item())
-
-    cross_entropy_loss = -torch.sum(ground_truth_distribution * log_probs, dim=-1)
-    mean_cross_entropy_loss = torch.mean(cross_entropy_loss)
+#     cross_entropy_loss = -torch.sum(ground_truth_distribution * log_probs, dim=-1)
+#     mean_cross_entropy_loss = torch.mean(cross_entropy_loss)
     
-    return mean_cross_entropy_loss
+#     return mean_cross_entropy_loss
+
+def calculate_loss(model_logits, ground_truth_distribution, loss_mask):
+    model_dist = F.softmax(model_logits[:, :-1, :], dim=-1)
+    log_probs = torch.log(model_dist + 1e-5)
+    
+    # Tính Cross Entropy (Shape: B x L-1)
+    ce_loss = -torch.sum(ground_truth_distribution * log_probs, dim=-1)
+    
+    shifted_loss_mask = loss_mask[:, 1:]
+    valid_tokens = shifted_loss_mask.sum()
+    
+    # Chỉ lấy trung bình loss trên các token của phần cần quên
+    if valid_tokens > 0:
+        mean_ce_loss = (ce_loss * shifted_loss_mask).sum() / valid_tokens
+    else:
+        mean_ce_loss = ce_loss.sum() * 0.0 # Tránh lỗi NaN nếu batch không có token nào hợp lệ
+        
+    return mean_ce_loss
 
 
 def top_p_filtering(logits, top_p=0.9, filter_value=0.0, N=1, max_N=10, need_softmax=True):
@@ -73,51 +79,162 @@ def top_p_filtering(logits, top_p=0.9, filter_value=0.0, N=1, max_N=10, need_sof
     return filtered_logits
     
 
-def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.8, N=1, max_N=10):
+# def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.8, N=1, max_N=10):
+#     probs = F.softmax(logits, dim=-1)
+
+#     with torch.no_grad():
+#         labels = labels[..., 1:]
+
+#         copied_logits = logits[..., :-1, :].clone()
+
+#         mask_start_pos = 1
+#         mask_start = torch.zeros_like(labels, dtype=torch.bool) 
+#         mask_start[:, mask_start_pos:] = 1 
+#         labels = labels.long()
+#         mask = F.one_hot(labels, num_classes=copied_logits.size(-1)) & mask_start.unsqueeze(-1)
+#         copied_logits = copied_logits.masked_fill(mask.bool(), -float('inf'))
+
+#         filtered_logit = top_p_filtering(copied_logits, top_p=top_p, N=N, max_N=max_N, filter_value=-float('inf'))
+
+#         if temperature is None:
+#             scaled_logit = filtered_logit
+#         else:
+#             scaled_logit = filtered_logit / temperature
+
+#         ground_truth_probs = F.softmax(scaled_logit, dim=-1)
+
+#         one_hot = F.one_hot(labels, num_classes=probs.size(-1)).bool()
+#         ground_truth_probs = torch.where(one_hot, -alpha*probs[..., :-1, :], ground_truth_probs)
+
+#     return probs, ground_truth_probs
+
+def get_output_distribution(logits, input_ids, loss_mask, top_p=0.8, alpha=0.0, temperature=0.8, N=1, max_N=10):
     probs = F.softmax(logits, dim=-1)
 
     with torch.no_grad():
-        labels = labels[..., 1:]
+        # Dịch chuyển nhãn và mask để căn chỉnh với logits (dự đoán token tiếp theo)
+        labels = input_ids[:, 1:].long()
+        shifted_loss_mask = loss_mask[:, 1:].bool()
+        copied_logits = logits[:, :-1, :].clone()
 
-        copied_logits = logits[..., :-1, :].clone()
-
-        mask_start_pos = 1
-        mask_start = torch.zeros_like(labels, dtype=torch.bool) 
-        mask_start[:, mask_start_pos:] = 1 
-        labels = labels.long()
-        mask = F.one_hot(labels, num_classes=copied_logits.size(-1)) & mask_start.unsqueeze(-1)
-        copied_logits = copied_logits.masked_fill(mask.bool(), -float('inf'))
+        # Tạo mask cho token mục tiêu cần triệt tiêu (chỉ triệt tiêu phần target, không triệt tiêu prompt)
+        target_one_hot = F.one_hot(labels, num_classes=copied_logits.size(-1)).bool()
+        valid_suppression_mask = target_one_hot & shifted_loss_mask.unsqueeze(-1)
+        
+        # Gán logit của token mục tiêu bằng -inf
+        copied_logits.masked_fill_(valid_suppression_mask, -float('inf'))
 
         filtered_logit = top_p_filtering(copied_logits, top_p=top_p, N=N, max_N=max_N, filter_value=-float('inf'))
 
-        if temperature is None:
-            scaled_logit = filtered_logit
-        else:
-            scaled_logit = filtered_logit / temperature
+        if temperature is not None:
+            filtered_logit = filtered_logit / temperature
 
-        ground_truth_probs = F.softmax(scaled_logit, dim=-1)
+        ground_truth_probs = F.softmax(filtered_logit, dim=-1)
 
-        one_hot = F.one_hot(labels, num_classes=probs.size(-1)).bool()
-        ground_truth_probs = torch.where(one_hot, -alpha*probs[..., :-1, :], ground_truth_probs)
+        # Kỹ thuật alpha-suppression chỉ áp dụng trên các token thuộc phần cần quên
+        ground_truth_probs = torch.where(valid_suppression_mask, -alpha * probs[:, :-1, :], ground_truth_probs)
 
     return probs, ground_truth_probs
 
 
+# def collate_fn(batch, tokenizer, max_length, device):
+#     prompts = [item['input'] for item in batch]
+#     rejected_responses = [item['deprecated_api'] for item in batch]
+
+#     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
+    
+#     disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
+
+#     prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
+#     prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
+
+#     return {'prompt_disprefered_ids': prompt_disprefered_ids,
+#             'prompt_disprefered_mask': prompt_disprefered_mask}
+
 def collate_fn(batch, tokenizer, max_length, device):
-    # prompts = [item['prompt']for item in batch]
-    # rejected_responses = [item['canonical_solution'] for item in batch]
-    prompts = [item['input'] for item in batch]
-    rejected_responses = [item['deprecated_api'] for item in batch]
+    input_ids_list = []
+    loss_mask_list = []
 
-    prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
-    disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
+    for item in batch:
+        prompt = item['input']
+        target = item['deprecated_api']
 
-    prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
-    prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
+        # Tokenize không có padding để lấy chính xác số lượng token
+        prompt_ids = tokenizer.encode(prompt, add_special_tokens=True)
+        target_ids = tokenizer.encode(target, add_special_tokens=False)
 
-    return {'prompt_disprefered_ids': prompt_disprefered_ids,
-            'prompt_disprefered_mask': prompt_disprefered_mask}
+        full_ids = prompt_ids + target_ids
+        
+        # Mask: 0 cho prompt (không tính loss), 1 cho target (phần cần quên)
+        mask = [0] * len(prompt_ids) + [1] * len(target_ids)
 
+        # Truncate nếu vượt quá max_length (Cắt bớt phần đầu của prompt để giữ target)
+        if len(full_ids) > max_length:
+            excess = len(full_ids) - max_length
+            full_ids = full_ids[excess:]
+            mask = mask[excess:]
+
+        input_ids_list.append(torch.tensor(full_ids))
+        loss_mask_list.append(torch.tensor(mask))
+
+    # Pad toàn bộ batch sau khi đã nối chuỗi
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    
+    padded_input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True, padding_value=pad_token_id)
+    padded_loss_mask = torch.nn.utils.rnn.pad_sequence(loss_mask_list, batch_first=True, padding_value=0)
+    attention_mask = (padded_input_ids != pad_token_id).long()
+
+    return {
+        'input_ids': padded_input_ids.to(device),
+        'attention_mask': attention_mask.to(device),
+        'loss_mask': padded_loss_mask.to(device)
+    }
+
+
+# def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gradient_accumulation_steps=1, top_p=0.8, temperature=0.8, N=1, max_N=10, alpha=0.0):
+#     model.train()
+
+#     for epoch in range(int(epochs)):
+#         print(f"Epoch {epoch + 1}/{epochs}")
+#         optimizer.zero_grad()
+        
+#         for step, batch in enumerate(tqdm(train_dataloader)):
+#             prompt_disprefered_ids = batch['prompt_disprefered_ids']
+#             prompt_disprefered_mask = batch['prompt_disprefered_mask']
+
+#             with torch.no_grad():
+#                 _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
+#                                                                        prompt_disprefered_ids, 
+#                                                                        top_p=top_p, 
+#                                                                        alpha=alpha,
+#                                                                        temperature=temperature, 
+#                                                                        N=N, 
+#                                                                        max_N=max_N)
+
+#             model_disprefered_logits = model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits
+
+#             loss = calculate_loss(model_disprefered_logits, ground_truth_distribution)
+            
+#             loss = loss / gradient_accumulation_steps
+#             loss.backward()
+
+#             if (step + 1) % gradient_accumulation_steps == 0:
+#                 optimizer.step()
+#                 optimizer.zero_grad()
+
+#         if len(train_dataloader) % gradient_accumulation_steps != 0:
+#             optimizer.step()
+#             optimizer.zero_grad()
+
+#         optimizer.zero_grad()
+
+#         print(f"Epoch [{epoch+1}/10], Loss: {loss.item()}")
+#         wandb.log({'epoch loss': loss.item()})
+
+#         # every epoch, save the model
+#         output_dir = wandb.config.output_dir + "/" + f"PROD_epoch{epoch}_lr{wandb.config.learning_rate}"
+#         model.save_pretrained(output_dir)
+#         tokenizer.save_pretrained(output_dir)
 
 def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gradient_accumulation_steps=1, top_p=0.8, temperature=0.8, N=1, max_N=10, alpha=0.0):
     model.train()
@@ -127,45 +244,35 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
         optimizer.zero_grad()
         
         for step, batch in enumerate(tqdm(train_dataloader)):
-            prompt_disprefered_ids = batch['prompt_disprefered_ids']
-            prompt_disprefered_mask = batch['prompt_disprefered_mask']
+            input_ids = batch['input_ids']
+            attention_mask = batch['attention_mask']
+            loss_mask = batch['loss_mask']
 
             with torch.no_grad():
-                _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
-                                                                       prompt_disprefered_ids, 
-                                                                       top_p=top_p, 
-                                                                       alpha=alpha,
-                                                                       temperature=temperature, 
-                                                                       N=N, 
-                                                                       max_N=max_N)
+                # Lấy output distribution của reference model
+                ref_logits = ref_model(input_ids, attention_mask=attention_mask).logits
+                _, ground_truth_distribution = get_output_distribution(
+                    ref_logits, input_ids, loss_mask, 
+                    top_p=top_p, alpha=alpha, temperature=temperature, N=N, max_N=max_N
+                )
 
-            model_disprefered_logits = model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits
+            # Tính logits của model hiện tại
+            model_logits = model(input_ids, attention_mask=attention_mask).logits
 
-            loss = calculate_loss(model_disprefered_logits, ground_truth_distribution)
-            
-            if torch.isnan(loss):
-                print(f">>> LỖI Ở BATCH {step}: Loss bị NaN TRƯỚC khi backward!")
-            
+            loss = calculate_loss(model_logits, ground_truth_distribution, loss_mask)
             loss = loss / gradient_accumulation_steps
             loss.backward()
-            
-            if step < 3:
-                print(f"Step {step} - Loss hiện tại (đã chia trung bình): {loss.item()}")
 
-            if (step + 1) % gradient_accumulation_steps == 0:
+            if (step + 1) % gradient_accumulation_steps == 0 or (step + 1) == len(train_dataloader):
                 optimizer.step()
                 optimizer.zero_grad()
+                
+                # Log wandb theo step để dễ theo dõi sự hội tụ
+                wandb.log({'step_loss': loss.item() * gradient_accumulation_steps})
 
-        if len(train_dataloader) % gradient_accumulation_steps != 0:
-            optimizer.step()
-            optimizer.zero_grad()
+        print(f"Epoch [{epoch+1}/{epochs}], Loss cuối: {loss.item() * gradient_accumulation_steps}")
 
-        optimizer.zero_grad()
-
-        print(f"Epoch [{epoch+1}/10], Loss: {loss.item()}")
-        wandb.log({'epoch loss': loss.item()})
-
-        # every epoch, save the model
+        # Lưu checkpoint sau mỗi epoch
         output_dir = wandb.config.output_dir + "/" + f"PROD_epoch{epoch}_lr{wandb.config.learning_rate}"
         model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
@@ -266,13 +373,13 @@ def main():
             ref_model, 
             tokenizer, 
             optimizer, 
-            train_dataloader, 
-            epochs=training_args.num_train_epochs, 
+            train_dataloader,
+            epochs=training_args.num_train_epochs,
             gradient_accumulation_steps=training_args.gradient_accumulation_steps,
-            top_p=custom_args.top_p, 
-            alpha=custom_args.alpha, 
-            temperature=custom_args.temperature, 
-            N=custom_args.N, 
+            top_p=custom_args.top_p,
+            alpha=custom_args.alpha,
+            temperature=custom_args.temperature,
+            N=custom_args.N,
             max_N=custom_args.max_N)
 
 

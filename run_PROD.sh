@@ -31,7 +31,7 @@ export HF_HOME="$HF_CACHE_DIR"
 export HUGGINGFACE_HUB_CACHE="$HF_CACHE_DIR"
 export TRANSFORMERS_CACHE="$HF_CACHE_DIR"
 
-export HF_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export HF_TOKEN="*******"
 
 # Optional: reduce tokenizer parallelism warnings/noise
 export TOKENIZERS_PARALLELISM=false
@@ -101,10 +101,14 @@ export HYDRA_FULL_ERROR=1
 
 lr=5e-6
 
-Model="google/codegemma-2b"
-ModelName="codegemma-2b"
-ModelPath="google/codegemma-2b"
-DatasetPath="data/forget_data/codegemma.json"
+# Model="google/codegemma-2b"
+# ModelName="codegemma-2b"
+# ModelPath="google/codegemma-2b"
+# DatasetPath="data/forget_data/codegemma.json"
+Model="deepseek-ai/deepseek-coder-1.3b-base"
+ModelName="deepseek-coder-1.3b"
+ModelPath="deepseek-ai/deepseek-coder-1.3b-base"
+DatasetPath="data/forget_data/deepseek.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
 python PROD.py \
@@ -123,7 +127,7 @@ python PROD.py \
   --save_strategy no || exit 1
 
 OutputDir="outputs/results/PROD_lr${lr}"
-suffix="2025"
+suffix="2026"
 
 mkdir -p "${OutputDir}"
 

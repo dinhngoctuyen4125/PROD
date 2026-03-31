@@ -46,6 +46,7 @@ def sample_code_from_llm(args, prompt, model, tokenizer):
                     top_k=args.topk,
                     top_p=args.topp,
                     eos_token_id=eos_token,
+                    pad_token_id=eos_token
                 )
             else:
                 tokens = model.generate(
@@ -55,6 +56,7 @@ def sample_code_from_llm(args, prompt, model, tokenizer):
                         use_cache=True,
                         do_sample=False,
                         eos_token_id=eos_token,
+                        pad_token_id=eos_token
                     )
 
             for i in tokens:
@@ -76,7 +78,7 @@ def load_model_tokenizer(args, model_name, model_path):
         model_path = model_name
         
     model = AutoModelForCausalLM.from_pretrained(
-        model_path, low_cpu_mem_usage=True, torch_dtype=torch.float32,
+        model_path, low_cpu_mem_usage=True, torch_dtype=torch.bfloat16,
         device_map={"": 0}
     )
     try:
