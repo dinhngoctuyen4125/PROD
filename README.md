@@ -1,14 +1,15 @@
 ### 1. Clone the Repository
+
 ```bash
-git clone https://github.com/dinhngoctuyen4125/PROD.git
+git clone [https://github.com/dinhngoctuyen4125/PROD.git](https://github.com/dinhngoctuyen4125/PROD.git)
 cd PROD
-````
+```
 
 ### 2. Set Up the Python Environment
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+conda create -n prod_env python=3.13.11 -y
+conda activate prod_env
 python -m pip install --upgrade pip
 ```
 
