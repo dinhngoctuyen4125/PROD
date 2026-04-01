@@ -1,7 +1,7 @@
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/dinhngoctuyen4125/PROD.git](https://github.com/dinhngoctuyen4125/PROD.git)
+git clone https://github.com/dinhngoctuyen4125/PROD.git
 cd PROD
 ```
 

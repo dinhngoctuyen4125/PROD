@@ -5,6 +5,7 @@ import logging
 import pprint
 import torch
 from tqdm import tqdm
+import pandas
 
 from datasets import load_dataset
 from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer
@@ -99,6 +100,7 @@ def generate_code_for_tasks(args, except_tasks, save_file):
 
     # open save file
     f = open(save_file, "a")
+    excel_file = save_file.replace(".jsonl", ".xlsx") # Tạo tên file Excel
 
     # load model
     generate_code_fn, tokenizer = load_model_tokenizer(args, args.model_name, args.model_path)
@@ -106,6 +108,8 @@ def generate_code_for_tasks(args, except_tasks, save_file):
     # load dataset
     dataset = load_dataset("openai/openai_humaneval")
     dataset = dataset['test']
+    
+    excel_data = [] # Khởi tạo danh sách lưu dữ liệu cho Excel
     
     for i in tqdm(range(len(dataset))):
         task_id = dataset[i]["task_id"]
@@ -127,8 +131,17 @@ def generate_code_for_tasks(args, except_tasks, save_file):
                 }
             f.write(json.dumps(output) + "\n")
             f.flush()
+            
+            excel_data.append(output)
     
     f.close()
+    
+    if excel_data:
+        df = pd.DataFrame(excel_data)
+        # Sắp xếp cột cho tập HumanEval
+        df = df[["task_id", "prompt", "completion"]]
+        df.to_excel(excel_file, index=False)
+        print(f"Đã lưu kết quả Model Utility ra file Excel tại: {excel_file}")
 
 
 def parse_args():

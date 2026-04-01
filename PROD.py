@@ -22,19 +22,6 @@ def seed_everything(seed=2003):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-# def calculate_loss(model_disprefered_logits, ground_truth_distribution):
-    
-#     model_disprefered_distribution = F.softmax(model_disprefered_logits, dim=-1)
-        
-#     model_disprefered_distribution = model_disprefered_distribution[..., :-1, :].contiguous()
-
-#     log_probs = torch.log(model_disprefered_distribution + 1e-5)
-
-#     cross_entropy_loss = -torch.sum(ground_truth_distribution * log_probs, dim=-1)
-#     mean_cross_entropy_loss = torch.mean(cross_entropy_loss)
-    
-#     return mean_cross_entropy_loss
-
 def calculate_loss(model_logits, ground_truth_distribution, loss_mask):
     model_dist = F.softmax(model_logits[:, :-1, :], dim=-1)
     log_probs = torch.log(model_dist + 1e-5)
@@ -77,36 +64,6 @@ def top_p_filtering(logits, top_p=0.9, filter_value=0.0, N=1, max_N=10, need_sof
     filtered_logits = logits.masked_fill(remove_mask, filter_value)
     
     return filtered_logits
-    
-
-# def get_output_distribution(logits, labels, top_p=0.8, alpha=0.0, temperature=0.8, N=1, max_N=10):
-#     probs = F.softmax(logits, dim=-1)
-
-#     with torch.no_grad():
-#         labels = labels[..., 1:]
-
-#         copied_logits = logits[..., :-1, :].clone()
-
-#         mask_start_pos = 1
-#         mask_start = torch.zeros_like(labels, dtype=torch.bool) 
-#         mask_start[:, mask_start_pos:] = 1 
-#         labels = labels.long()
-#         mask = F.one_hot(labels, num_classes=copied_logits.size(-1)) & mask_start.unsqueeze(-1)
-#         copied_logits = copied_logits.masked_fill(mask.bool(), -float('inf'))
-
-#         filtered_logit = top_p_filtering(copied_logits, top_p=top_p, N=N, max_N=max_N, filter_value=-float('inf'))
-
-#         if temperature is None:
-#             scaled_logit = filtered_logit
-#         else:
-#             scaled_logit = filtered_logit / temperature
-
-#         ground_truth_probs = F.softmax(scaled_logit, dim=-1)
-
-#         one_hot = F.one_hot(labels, num_classes=probs.size(-1)).bool()
-#         ground_truth_probs = torch.where(one_hot, -alpha*probs[..., :-1, :], ground_truth_probs)
-
-#     return probs, ground_truth_probs
 
 def get_output_distribution(logits, input_ids, loss_mask, top_p=0.8, alpha=0.0, temperature=0.8, N=1, max_N=10):
     probs = F.softmax(logits, dim=-1)
@@ -135,21 +92,6 @@ def get_output_distribution(logits, input_ids, loss_mask, top_p=0.8, alpha=0.0, 
         ground_truth_probs = torch.where(valid_suppression_mask, -alpha * probs[:, :-1, :], ground_truth_probs)
 
     return probs, ground_truth_probs
-
-
-# def collate_fn(batch, tokenizer, max_length, device):
-#     prompts = [item['input'] for item in batch]
-#     rejected_responses = [item['deprecated_api'] for item in batch]
-
-#     prompt_ids = tokenizer(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
-    
-#     disprefered_ids = tokenizer(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
-
-#     prompt_disprefered_ids = torch.cat([prompt_ids, disprefered_ids], dim=-1)
-#     prompt_disprefered_mask = torch.ones_like(prompt_disprefered_ids)
-
-#     return {'prompt_disprefered_ids': prompt_disprefered_ids,
-#             'prompt_disprefered_mask': prompt_disprefered_mask}
 
 def collate_fn(batch, tokenizer, max_length, device):
     input_ids_list = []
@@ -189,52 +131,6 @@ def collate_fn(batch, tokenizer, max_length, device):
         'attention_mask': attention_mask.to(device),
         'loss_mask': padded_loss_mask.to(device)
     }
-
-
-# def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gradient_accumulation_steps=1, top_p=0.8, temperature=0.8, N=1, max_N=10, alpha=0.0):
-#     model.train()
-
-#     for epoch in range(int(epochs)):
-#         print(f"Epoch {epoch + 1}/{epochs}")
-#         optimizer.zero_grad()
-        
-#         for step, batch in enumerate(tqdm(train_dataloader)):
-#             prompt_disprefered_ids = batch['prompt_disprefered_ids']
-#             prompt_disprefered_mask = batch['prompt_disprefered_mask']
-
-#             with torch.no_grad():
-#                 _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
-#                                                                        prompt_disprefered_ids, 
-#                                                                        top_p=top_p, 
-#                                                                        alpha=alpha,
-#                                                                        temperature=temperature, 
-#                                                                        N=N, 
-#                                                                        max_N=max_N)
-
-#             model_disprefered_logits = model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits
-
-#             loss = calculate_loss(model_disprefered_logits, ground_truth_distribution)
-            
-#             loss = loss / gradient_accumulation_steps
-#             loss.backward()
-
-#             if (step + 1) % gradient_accumulation_steps == 0:
-#                 optimizer.step()
-#                 optimizer.zero_grad()
-
-#         if len(train_dataloader) % gradient_accumulation_steps != 0:
-#             optimizer.step()
-#             optimizer.zero_grad()
-
-#         optimizer.zero_grad()
-
-#         print(f"Epoch [{epoch+1}/10], Loss: {loss.item()}")
-#         wandb.log({'epoch loss': loss.item()})
-
-#         # every epoch, save the model
-#         output_dir = wandb.config.output_dir + "/" + f"PROD_epoch{epoch}_lr{wandb.config.learning_rate}"
-#         model.save_pretrained(output_dir)
-#         tokenizer.save_pretrained(output_dir)
 
 def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gradient_accumulation_steps=1, top_p=0.8, temperature=0.8, N=1, max_N=10, alpha=0.0):
     model.train()
@@ -373,13 +269,13 @@ def main():
             ref_model, 
             tokenizer, 
             optimizer, 
-            train_dataloader,
-            epochs=training_args.num_train_epochs,
+            train_dataloader, 
+            epochs=training_args.num_train_epochs, 
             gradient_accumulation_steps=training_args.gradient_accumulation_steps,
-            top_p=custom_args.top_p,
-            alpha=custom_args.alpha,
-            temperature=custom_args.temperature,
-            N=custom_args.N,
+            top_p=custom_args.top_p, 
+            alpha=custom_args.alpha, 
+            temperature=custom_args.temperature, 
+            N=custom_args.N, 
             max_N=custom_args.max_N)
 
 

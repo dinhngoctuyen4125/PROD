@@ -41,70 +41,11 @@ unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 unset CUDA_VISIBLE_DEVICES || true
 
-echo "===== ENV CHECK ====="
-echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-<unset>}"
-which python
-python --version
-which pip
-python -c "import sys; print(sys.executable)"
-
-echo "===== GPU CHECK ====="
-hostname
-echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
-echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
-echo "SLURM_JOB_NODELIST=${SLURM_JOB_NODELIST:-}"
-echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE:-<unset>}"
-echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-<unset>}"
-which nvidia-smi || true
-nvidia-smi || true
-nvidia-smi -L || true
-
-python - <<'PY'
-import os
-import sys
-import torch
-
-print("torch:", torch.__version__)
-print("torch cuda build:", torch.version.cuda)
-print("cuda available:", torch.cuda.is_available())
-print("device count:", torch.cuda.device_count())
-print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
-print("SLURM_GPUS_ON_NODE:", os.environ.get("SLURM_GPUS_ON_NODE"))
-print("SLURM_JOB_GPUS:", os.environ.get("SLURM_JOB_GPUS"))
-
-try:
-    if torch.cuda.device_count() > 0:
-        print("device name:", torch.cuda.get_device_name(0))
-except Exception as e:
-    print("get_device_name error:", repr(e))
-
-try:
-    x = torch.tensor([1.0]).to("cuda")
-    print("cuda tensor ok:", x)
-except Exception as e:
-    print("cuda tensor failed:", repr(e))
-    sys.exit(1)
-PY
-
-echo "===== HF CHECK ====="
-python - <<'PY'
-import os
-print("HF_HOME:", os.environ.get("HF_HOME"))
-print("HUGGINGFACE_HUB_CACHE:", os.environ.get("HUGGINGFACE_HUB_CACHE"))
-print("TRANSFORMERS_CACHE:", os.environ.get("TRANSFORMERS_CACHE"))
-PY
-
 echo "===== START RUN ====="
-cd "$PROJECT_DIR" || exit 1
-
 export HYDRA_FULL_ERROR=1
 
-lr=5e-6
+lr=5e-7
 
-# Model="google/codegemma-2b"
-# ModelName="codegemma-2b"
-# ModelPath="google/codegemma-2b"
-# DatasetPath="data/forget_data/codegemma.json"
 Model="deepseek-ai/deepseek-coder-1.3b-base"
 ModelName="deepseek-coder-1.3b"
 ModelPath="deepseek-ai/deepseek-coder-1.3b-base"
