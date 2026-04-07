@@ -98,19 +98,42 @@ def collate_fn(batch, tokenizer, max_length, device):
     loss_mask_list = []
 
     for item in batch:
-        prompt = item['input']
-        target = item['deprecated_api']
+        # Lấy context từ dataset (hỗ trợ cả key 'prompt' và 'input')
+        code_context = item.get('prompt', item.get('input', ''))
+        target = item.get('deprecated_api', '')
 
-        # Tokenize không có padding để lấy chính xác số lượng token
-        prompt_ids = tokenizer.encode(prompt, add_special_tokens=True)
+        # 1. Truncate context giống hệt bên file test
+        encoded_context = tokenizer.encode(code_context, add_special_tokens=False)
+        if len(encoded_context) > max_length - 200:
+            encoded_context = encoded_context[-(max_length - 200):]
+            code_context = tokenizer.decode(encoded_context)
+
+        # 2. Tạo instruction prompt
+        instruction = (
+            f"Please complete the following Python code.\n\n"
+            f"```python\n{code_context}\n```\n"
+            f"Output ONLY the exact next lines of code. Do not include markdown formatting like ```python, explanations, or greetings."
+        )
+
+        messages = [
+            {"role": "user", "content": instruction}
+        ]
+
+        prompt_output = tokenizer.apply_chat_template(
+            messages, 
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt"
+        )
+        # prompt_output["input_ids"] là tensor 2D (1, sequence_length), ta lấy batch 0 rồi chuyển sang list
+        prompt_ids = prompt_output["input_ids"][0].tolist()
         target_ids = tokenizer.encode(target, add_special_tokens=False)
 
         full_ids = prompt_ids + target_ids
         
-        # Mask: 0 cho prompt (không tính loss), 1 cho target (phần cần quên)
+        # 5. Mask: 0 cho toàn bộ prompt (không học/không tính loss), 1 cho target (phần cần unlearn)
         mask = [0] * len(prompt_ids) + [1] * len(target_ids)
 
-        # Truncate nếu vượt quá max_length (Cắt bớt phần đầu của prompt để giữ target)
         if len(full_ids) > max_length:
             excess = len(full_ids) - max_length
             full_ids = full_ids[excess:]
@@ -119,7 +142,6 @@ def collate_fn(batch, tokenizer, max_length, device):
         input_ids_list.append(torch.tensor(full_ids))
         loss_mask_list.append(torch.tensor(mask))
 
-    # Pad toàn bộ batch sau khi đã nối chuỗi
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     
     padded_input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True, padding_value=pad_token_id)

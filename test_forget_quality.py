@@ -69,6 +69,7 @@ def sample_code_from_llm(args, prompt, model, tokenizer):
                 # Chỉ lấy phần code được sinh ra, bỏ qua phần prompt
                 generated_tokens = idx[input_tensor.shape[1]:]
                 text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                text = text.replace('Ċ', '\n').replace('Ġ', ' ')
                 completions.append(text)
                 
         except RuntimeError as e:
@@ -84,7 +85,7 @@ def load_model_tokenizer(args, model_name, model_path):
         model_path = model_name
     
     model = AutoModelForCausalLM.from_pretrained(
-        model_path, low_cpu_mem_usage=True, torch_dtype=torch.float16,
+        model_path, low_cpu_mem_usage=True, dtype=torch.bfloat16,
         device_map={"": 0}
     )
     try:
@@ -105,58 +106,85 @@ def load_model_tokenizer(args, model_name, model_path):
 def generate_code_for_tasks(args, except_tasks, save_file):
     f = open(save_file, "a")
     summary_f = open(save_file.replace(".jsonl", "_summary.txt"), "a")
-    excel_file = save_file.replace(".jsonl", ".xlsx") # Tạo tên file Excel
+    csv_file = save_file.replace(".jsonl", ".csv")
 
-    generate_code_fn, tokenizer = load_model_tokenizer(args, args.model_name, args.model_path)
+    generate_code_fn, tokenizer, model = load_model_tokenizer(args, args.model_name, args.model_path)
     dataset = load_dataset('json', data_files=args.dataset)['train']
 
     total_exact_match = 0
     total_codebleu = 0
     processed_count = 0
     
-    excel_data = [] # Khởi tạo danh sách để lưu dữ liệu cho Excel
+    csv_data = []
 
-    for i in tqdm(range(len(dataset))):
+    for i in tqdm(range(len(dataset[:10]))):
         task_id = str(i)
         if task_id in except_tasks:
             continue
 
-        prompt = dataset[i]["input"]
-        ground_truth = dataset[i]["deprecated_api"]
+        code_context = dataset[i].get("prompt", dataset[i].get("input", ""))
+        ground_truth = dataset[i].get("deprecated_api", "")
 
-        if prompt == "":
+        if code_context == "":
             parts = ground_truth.split(" ")
             length = len(parts)
-            prompt = " ".join(parts[:length//2])
+            code_context = " ".join(parts[:length//2])
             ground_truth = " " + " ".join(parts[length//2:])
+
+        # LOGIC MỚI: Cắt bỏ token phía trước và dấu chấm (nếu có)
+        if "." in ground_truth:
+            ground_truth = ground_truth.split(".", 1)[-1].strip()
+
+        # LOGIC TẠO PROMPT (Instruct format)
+        MAX_PROMPT_LENGTH = 2048
+        encoded_context = tokenizer.encode(code_context, add_special_tokens=False)
+        if len(encoded_context) > MAX_PROMPT_LENGTH - 200:
+            encoded_context = encoded_context[-(MAX_PROMPT_LENGTH - 200):]
+            code_context = tokenizer.decode(encoded_context)
+
+        instruction = (
+            f"Please complete the following Python code.\n\n"
+            f"```python\n{code_context}\n```\n"
+            f"Output ONLY the exact next lines of code. Do not include markdown formatting like ```python, explanations, or greetings."
+        )
+
+        messages = [
+            {"role": "user", "content": instruction}
+        ]
+
+        # Áp dụng Chat Template
+        prompt_with_template = tokenizer.apply_chat_template(
+            messages, 
+            tokenize=False, 
+            add_generation_prompt=True
+        )
 
         task_codebleu = 0
         task_exact_match = 0
         
-        for completion in generate_code_fn(args, prompt):
+        for completion in generate_code_fn(args, prompt_with_template):
             output = {
                 "task_id": task_id,
-                "prompt": prompt,
+                "prompt": code_context, # Chỉ lưu context sạch vào file, bỏ chat template
                 "completion": completion,
                 "ground_truth": ground_truth
             }
             
-            # Nếu API cũ xuất hiện trong đoạn code sinh ra -> mô hình CHƯA quên thành công
+            # Exact Match
             if ground_truth.strip() in completion:
                 task_exact_match += 1
 
+            # CodeBLEU
             try:
-                # calc_codebleu nhận vào danh sách các mảng reference và danh sách prediction
                 cb_results = calc_codebleu([[ground_truth]], [completion], lang="python")
                 task_codebleu += cb_results['codebleu']
             except Exception as e:
-                # Bắt lỗi nếu code sinh ra bị rác, sai cú pháp khiến AST không parse được
                 task_codebleu += 0.0
             
             f.write(json.dumps(output) + "\n")
             f.flush()
             
-            excel_data.append(output)
+            csv_data.append(output)
             
         total_exact_match += task_exact_match / args.num_samples
         total_codebleu += task_codebleu / args.num_samples
@@ -164,7 +192,6 @@ def generate_code_for_tasks(args, except_tasks, save_file):
 
     if processed_count > 0:
         avg_exact_match_rate = total_exact_match / processed_count
-        # EM
         forget_quality = 1.0 - avg_exact_match_rate 
         avg_codebleu = total_codebleu / processed_count
         
@@ -175,12 +202,12 @@ def generate_code_for_tasks(args, except_tasks, save_file):
         summary_f.write(f"Forget Quality (Exact Match): {forget_quality:.4f}\n")
         summary_f.write(f"Average CodeBLEU: {avg_codebleu:.4f}\n")
         
-        if excel_data:
-            df = pd.DataFrame(excel_data)
-            # Bạn có thể sắp xếp lại thứ tự cột cho dễ nhìn
+        # Lưu file CSV
+        if csv_data:
+            df = pd.DataFrame(csv_data)
             df = df[["task_id", "prompt", "ground_truth", "completion"]]
-            df.to_excel(excel_file, index=False)
-            print(f"Đã lưu kết quả ra file Excel tại: {excel_file}")
+            df.to_csv(csv_file, index=False, encoding='utf-8-sig')
+            print(f"Đã lưu kết quả ra file CSV tại: {csv_file}")
             
     else:
         print("Không có task nào được xử lý (có thể đã resume xong hết).")

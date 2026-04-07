@@ -46,10 +46,10 @@ export HYDRA_FULL_ERROR=1
 
 lr=5e-7
 
-Model="deepseek-ai/deepseek-coder-1.3b-base"
+Model="deepseek-ai/deepseek-coder-1.3b-instruct"
 ModelName="deepseek-coder-1.3b"
-ModelPath="deepseek-ai/deepseek-coder-1.3b-base"
-DatasetPath="data/forget_data/deepseek.json"
+ModelPath="deepseek-ai/deepseek-coder-1.3b-instruct"
+DatasetPath="data/forget_data/deepseek_not_hint.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
 python PROD.py \
@@ -87,18 +87,18 @@ for file in "${SaveModelPath}"/*; do
     --output-dir "${OutputDir}/${filename}/forget_quality" \
     --output-file-suffix "${suffix}"
 
-  python test_model_utility.py \
-    --model_name "${ModelName}" \
-    --model_path "${file}" \
-    --dataset "HumanEval" \
-    --num-samples 1 \
-    --temperature 0.0 \
-    --output-dir "${OutputDir}/${filename}/model_utility" \
-    --output-file-suffix "${suffix}"
+  # python test_model_utility.py \
+  #   --model_name "${ModelName}" \
+  #   --model_path "${file}" \
+  #   --dataset "HumanEval" \
+  #   --num-samples 1 \
+  #   --temperature 0.0 \
+  #   --output-dir "${OutputDir}/${filename}/model_utility" \
+  #   --output-file-suffix "${suffix}"
 
-  python evaluate.py \
-    --dataset HumanEval \
-    --input_path "${OutputDir}/${filename}/model_utility/HumanEval_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl" \
-    --truncate \
-    --eval_standard
+  # python evaluate.py \
+  #   --dataset HumanEval \
+  #   --input_path "${OutputDir}/${filename}/model_utility/HumanEval_${ModelName}_temp0.0_toppNone_topkNone_samples1_0shot_${suffix}.jsonl" \
+  #   --truncate \
+  #   --eval_standard
 done
