@@ -6,7 +6,7 @@ ModelPath="deepseek-ai/deepseek-coder-1.3b-instruct"
 DatasetPath="data/forget_data/deepseek_not_hint.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-python PROD.py \
+python3 PROD.py \
   --model_name "${Model}" \
   --model_path "${ModelPath}" \
   --output_dir "${SaveModelPath}" \
@@ -32,7 +32,7 @@ for file in "${SaveModelPath}"/*; do
   filename=$(basename "$file")
   echo "Filename: ${filename}, Path: ${file}"
 
-  python test_forget_quality.py \
+  python3 test_forget_quality.py \
     --model_name "${ModelName}" \
     --model_path "${file}" \
     --dataset "${DatasetPath}" \
