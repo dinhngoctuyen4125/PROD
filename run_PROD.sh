@@ -16,7 +16,7 @@ python PROD.py \
 --output_dir ${SaveModelPath} \
 --train_data_path ${DatasetPath} \
 --alpha 0.0 \
---num_train_epochs 10 \
+--num_train_epochs 5 \
 --learning_rate ${lr} \
 --per_device_train_batch_size 1 \
 --gradient_accumulation_steps 32 \
