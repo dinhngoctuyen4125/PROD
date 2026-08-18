@@ -101,7 +101,7 @@ def build_prompt(code_context):
 
 def collate_fn(batch, tokenizer, max_length, device):
     prompts = [build_prompt(item['probing input']) for item in batch]
-    rejected_responses = [item['forget'] for item in batch]
+    rejected_responses = [item['y_neg'] for item in batch]
 
     prompt_ids = tokenizer.batch_encode_plus(prompts, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=True)['input_ids'].to(device)
     disprefered_ids = tokenizer.batch_encode_plus(rejected_responses, padding=True, return_tensors="pt", max_length=max_length, truncation=True, add_special_tokens=False)['input_ids'].to(device)
