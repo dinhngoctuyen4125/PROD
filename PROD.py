@@ -138,7 +138,7 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
 
             loss = calculate_loss(model_disprefered_logits, ground_truth_distribution)
             
-            loss.backward()
+            (loss / gradient_accumulation_steps).backward()
 
             if (step + 1) % gradient_accumulation_steps == 0:
                 optimizer.step()
