@@ -7,7 +7,7 @@ lr=5e-6
 Model="codellama/CodeLlama-7b-hf"
 ModelName="CodeLlama-7b-hf"
 ModelPath="codellama/CodeLlama-7b-hf"
-DatasetPath="../Data-Collection/data/codellama/D_forget.json"
+DatasetPath="../Data-Collection/codellama/D_forget.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
 python PROD.py \
