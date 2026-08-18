@@ -6,7 +6,7 @@ lr=5e-6
 
 Model="codellama/CodeLlama-7b-hf"
 ModelName="CodeLlama-7b-hf"
-ModelPath="learned_model"
+ModelPath="codellama/CodeLlama-7b-hf"
 DatasetPath="data/codellama/depAPI.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
