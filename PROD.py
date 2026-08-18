@@ -12,8 +12,8 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, HfArgumentParser,Seq2SeqTrainingArguments
 
 
-import wandb
-wandb.init(project="unlearn_code", name="PROD")
+# Simple config storage (replaces wandb)
+_config = {}
 
 
 def seed_everything(seed=2003):
@@ -151,10 +151,10 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
         optimizer.zero_grad()
 
         print(f"Epoch [{epoch+1}/10], Loss: {loss.item()}")
-        wandb.log({'epoch loss': loss.item()})
+        # wandb.log({'epoch loss': loss.item()})
 
         # every epoch, save the model
-        output_dir = wandb.config.output_dir + "/" + f"PROD_epoch{epoch}_lr{wandb.config.learning_rate}"
+        output_dir = _config['output_dir'] + "/" + f"PROD_epoch{epoch}_lr{_config['learning_rate']}"
         model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
 
@@ -180,8 +180,8 @@ def main():
     print(training_args)
     print(custom_args)
 
-    wandb.config.update(training_args)
-    wandb.config.update(custom_args)
+    _config.update(vars(training_args))
+    _config.update(vars(custom_args))
 
     if custom_args.model_path is not None:
         model_path = custom_args.model_path

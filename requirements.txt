@@ -5,4 +5,3 @@ numpy==2.3.0
 torch==2.7.1+cu118
 tqdm==4.67.1
 transformers==4.39.3
-wandb==0.25.1
