@@ -26,3 +26,11 @@ Execute the `run_PROD.sh` script to run the experiments:
 ```bash
 bash run_PROD.sh
 ```
+
+### 3. Train OOD Detector
+
+The OOD detector uses a RoBERTa encoder (CodeBERT) fine-tuned with LoRA + contrastive loss, followed by a One-Class SVM to detect whether an input belongs to the forget distribution.
+
+```bash
+bash train_ood.sh
+```
