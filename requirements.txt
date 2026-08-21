@@ -1,8 +1,16 @@
 accelerate==1.13.0
 datasets==4.7.0
 evaluate==0.4.6
+huggingface-hub
+matplotlib
 numpy==2.3.0
+packaging
+peft
+scikit-learn
+scipy
+sentencepiece
 torch==2.7.1+cu118
+torchvision
 tqdm==4.67.1
 transformers==4.39.3
 wandb==0.25.1
