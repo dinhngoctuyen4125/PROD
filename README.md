@@ -7,7 +7,7 @@ This repository contains the code and data for the paper titled **Large Language
 Install **Conda 3.10** and create the environment:
 
 ```bash
-conda create -n prod python=3.10
+conda create -n prod python=3.12.13
 conda activate prod
 ```
 
@@ -15,9 +15,6 @@ Install the required dependencies using `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
-pip install python-dateutil
-pip install evaluate
-pip install --upgrade transformers sentencepiece
 ```
 
 ## 2. Data
