@@ -1,31 +1,44 @@
+"""
+eval_prod_ood.py — OOD-Guided Soft-Weighted Inference for PROD
+
+Implements the formula at each linear layer:
+    output = W_base · x + w(x) × (W_PROD - W_base) · x
+           = (1 - w(x)) × W_base · x  +  w(x) × W_PROD · x
+
+Where w(x) is computed by the OOD detector (RoBERTa + OCSVM + GMM).
+Uses PyTorch forward hooks instead of hacked Transformers files.
+
+Usage:
+    python eval_prod_ood.py \\
+        --base_model codellama/CodeLlama-7b-hf \\
+        --prod_model outputs/models/PROD_lr5e-6/PROD_epoch9_lr5e-6 \\
+        --test_dataset ./data/codellama/D_test.json \\
+        --ood_weights ./ood_checkpoints_codellama_0/ \\
+        --ood_base_model microsoft/codebert-base
+"""
+
 import os
 import re
 import json
 import argparse
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import random
-from tqdm import tqdm
-
-from src.ood_model_selector import RobertaForSelector, RobertaForSelector_inference
-
-from transformers import RobertaConfig, RobertaTokenizer, BertConfig, BertTokenizer
-
-from src.peft_model_hacked_o import PeftModel
-import pickle
-from src.modeling_llama_hacked_o import LlamaForCausalLM_ood
 import math
 import sys
-from transformers import GenerationConfig, LlamaTokenizer, AutoConfig, AutoTokenizer
-from scipy.stats import norm
-from scipy.optimize import minimize
+import pickle
 import numpy as np
-from sklearn.mixture import GaussianMixture as GMM
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer, RobertaTokenizer
+from src.ood_model_selector import RobertaForSelector_inference
+from scipy.stats import norm
+from typing import Union
 
 if torch.cuda.is_available():
     device = "cuda"
 else:
     device = "cpu"
-
 
 try:
     if torch.backends.mps.is_available():
@@ -33,13 +46,13 @@ try:
 except:  # noqa: E722
     pass
 
-import json
-import os.path as osp
-from typing import Union
+
+# ============================================================
+# Helper Functions
+# ============================================================
 
 def set_seed(seed: int):
-    """Fix PRNG seed for reproducable experiments.
-    """
+    """Fix PRNG seed for reproducable experiments."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -50,6 +63,7 @@ def set_seed(seed: int):
         torch.backends.cudnn.benchmark = False
     os.environ["PYTHONHASHSEED"] = str(seed)
 
+
 def check_api_usage(generated_line, target_api, alias_dict):
     """Kiểm tra xem API sinh ra có khớp với target hay không bằng Regex."""
     for key, value in alias_dict.items():
@@ -59,236 +73,278 @@ def check_api_usage(generated_line, target_api, alias_dict):
                 return True
     return False
 
-def knowledge_weights(gmm_scores, threshold_train):
-    weight_res = []
-    r = 3  ## this value can be changed to adjust the range of id data
-    gmm_scores -= r * threshold_train
 
-    for i in range(gmm_scores.shape[0]):
-        weight_t = math.exp(gmm_scores[i]) / (1 + math.exp(gmm_scores[i]))
-        weight_res.append(weight_t)
+# ============================================================
+# OOD Weight Computation (from O3 paper)
+# ============================================================
 
-    return weight_res
-
-def weighting_func_gmm(train_in_score, test_in_score):
-    # 1. fit two gaussians
-    mean1, std1 = norm.fit(train_in_score)
-    mean2, std2 = norm.fit(test_in_score)
-
-    # 2. build the gaussian mixture model
-    gmm = GMM(n_components=2)
-    gmm.means_ = np.array([[mean1], [mean2]])
-    # gmm.covariances_ = np.array([[[std1**2]], [[std2**2]]])
-    gmm.covariances_ = np.array([[[std2 ** 2]], [[std2 ** 2]]])
-    gmm.weights_ = np.array([0.5, 0.5])
-    gmm.precisions_cholesky_ = np.linalg.cholesky(np.linalg.inv(gmm.covariances_))
-
-    # center: x0
-    # x0 = minimize(lambda x: (gmm_cdf(x, gmm) - 0.5)**2, x0=0).x[0]
-    x0 = (mean1 + mean2) / 2
-
-    return gmm, x0
-
-# cumulative prob func
 def gmm_cdf(x, gmm):
+    """Cumulative probability function for GMM."""
     weights = gmm.weights_
     means = gmm.means_.flatten()
     stds = np.sqrt(gmm.covariances_.flatten())
     cdf_vals = [w * norm.cdf(x, mean, std) for w, mean, std in zip(weights, means, stds)]
     return np.sum(cdf_vals)
 
-# the cumulative prob for a point
+
 def cumulative_probability(x, gmm):
+    """The cumulative probability for a point."""
     return gmm_cdf(x, gmm)
 
-# 6. the cumulative prob for the symmtric point
+
 def symmetric_cumulative_probability(x, x0, gmm):
+    """The cumulative probability for the symmetric point."""
     symmetric_x = 2 * x0 - x
     return gmm_cdf(symmetric_x, gmm)
 
+
+# Global tracking for weight distribution analysis
 all_w_res = []
 all_w_res_dic = {}
+
+
 def obtain_weights(input_x, gmm, x0):
+    """
+    Compute soft weight w(x) from OCSVM score.
+
+    Returns:
+        w(x) ∈ {0, (0.3, 0.4], 1.2}
+        - 0:   Input is NOT in forget domain → base model only
+        - 0.3~0.4: Partial activation
+        - 1.2: Input IS in forget domain → strong unlearn
+    """
     cp_x = cumulative_probability(input_x, gmm)
     cp_symmetric_x = symmetric_cumulative_probability(input_x, x0, gmm)
 
     cp_sum = 1 - max(cp_x, cp_symmetric_x) + min(cp_x, cp_symmetric_x)
     scaling_factor = 10
     cp_sum *= scaling_factor
-    range_th = 2 # 2 0.5
+    range_th = 2
 
     w_res = math.exp(cp_sum - range_th) / (1 + math.exp(cp_sum - range_th))
 
-    # if w_res > 0.4:
-    #     w_res = 1.2
-    # elif w_res <= 0.4 and w_res > 0.3:
-    #     w_res = w_res * 1.2 # 2
-    # else:
-    #     w_res=0
-
-    if w_res > 0.9: # not_test_RD 0.997 0.995 0.98 # test_SD 0.999 0.990 0.9845
+    if w_res > 0.9:
         w_res = 1.2
     elif w_res <= 0.4 and w_res > 0.3:
-        w_res = w_res # 2
+        w_res = w_res
     else:
-        w_res=0
+        w_res = 0
 
     return w_res
-# print(np.mean(all_w_res), min(all_w_res), max(all_w_res))
-class Prompter(object):
-    __slots__ = ("template", "_verbose")
 
-    def __init__(self, template_name: str = "", verbose: bool = False):
-        self._verbose = verbose
-        self.template = {
-            "description": "Template used by Alpaca-LoRA.",
-            "prompt_input": "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n",
-            "prompt_no_input": "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Response:\n",
-            "response_split": "### Response:"
-        }
 
-        if self._verbose:
-            print(
-                f"Using prompt template {template_name}: {self.template['description']}"
+# ============================================================
+# Delta-W Forward Hook System
+# ============================================================
+
+class DeltaWeightManager:
+    """
+    Manages delta weights (W_PROD - W_base) and forward hooks.
+
+    At each hooked linear layer, the hook computes:
+        output = base_output + w(x) × F.linear(input, delta_W, delta_b)
+
+    Which is equivalent to:
+        output = (1 - w(x)) × W_base · x + w(x) × W_PROD · x
+    """
+
+    def __init__(self):
+        self.ood_weight = 0  # scalar or tensor (batch_size,)
+        self._hooks = []
+
+    @staticmethod
+    def compute_and_register(base_model, prod_model, target_module_names):
+        """
+        Compute delta_W = W_PROD - W_base for each target linear layer,
+        register forward hooks on the base model, and return the manager.
+
+        Args:
+            base_model: The base pretrained model (on GPU)
+            prod_model: The PROD fine-tuned model (can be on CPU)
+            target_module_names: List of module name substrings to target
+                                 e.g. ["q_proj", "k_proj", "v_proj", ...]
+
+        Returns:
+            DeltaWeightManager instance with hooks registered
+        """
+        manager = DeltaWeightManager()
+
+        # Build lookup for prod model modules
+        prod_modules = dict(prod_model.named_modules())
+
+        hooked_count = 0
+        for name, base_module in base_model.named_modules():
+            # Check if this is a target linear layer
+            if not isinstance(base_module, nn.Linear):
+                continue
+            if not any(t in name for t in target_module_names):
+                continue
+
+            # Get corresponding prod module
+            if name not in prod_modules:
+                print(f"  WARNING: Module '{name}' not found in PROD model, skipping")
+                continue
+            prod_module = prod_modules[name]
+
+            # Compute delta weights (on CPU first to save VRAM)
+            delta_w = (prod_module.weight.data.cpu() - base_module.weight.data.cpu()).clone()
+            delta_b = None
+            if base_module.bias is not None and prod_module.bias is not None:
+                delta_b = (prod_module.bias.data.cpu() - base_module.bias.data.cpu()).clone()
+
+            # Move to same device and dtype as base module
+            base_device = base_module.weight.device
+            base_dtype = base_module.weight.dtype
+            delta_w = delta_w.to(device=base_device, dtype=base_dtype)
+            if delta_b is not None:
+                delta_b = delta_b.to(device=base_device, dtype=base_dtype)
+
+            # Register hook
+            hook = base_module.register_forward_hook(
+                manager._make_hook(delta_w, delta_b)
             )
+            manager._hooks.append(hook)
+            hooked_count += 1
 
-    def generate_prompt(
-            self,
-            instruction: str,
-            input: Union[None, str] = None,
-            label: Union[None, str] = None,
-    ) -> str:
-        # returns the full prompt from instruction and optional input
-        # if a label (=response, =output) is provided, it's also appended.
-        if input:
-            res = self.template["prompt_input"].format(
-                instruction=instruction, input=input
-            )
-        else:
-            res = self.template["prompt_no_input"].format(
-                instruction=instruction
-            )
-        if label:
-            res = f"{res}{label}"
-        if self._verbose:
-            print(res)
-        return res
+        print(f"  Registered {hooked_count} delta-W forward hooks")
+        return manager
 
-    def get_response(self, output: str) -> str:
-        return output.split(self.template["response_split"])[1].strip()
+    def _make_hook(self, delta_weight, delta_bias):
+        """Create a forward hook closure for a single linear layer."""
+        manager_ref = self
 
+        def hook(module, input, output):
+            w = manager_ref.ood_weight
+
+            # Fast path: no delta contribution
+            if isinstance(w, (int, float)) and w == 0:
+                return output
+
+            x = input[0]
+            delta_out = F.linear(x, delta_weight, delta_bias)
+
+            # Handle per-sample weight tensor
+            if isinstance(w, torch.Tensor):
+                w = w.to(device=delta_out.device, dtype=delta_out.dtype)
+                if w.dim() >= 1:
+                    # Reshape (batch_size,) → (batch_size, 1, 1, ...) for broadcasting
+                    w = w.view(-1, *([1] * (delta_out.dim() - 1)))
+
+            return output + w * delta_out
+
+        return hook
+
+    def set_weight(self, w):
+        """Set the OOD weight for the current batch."""
+        self.ood_weight = w
+
+    def remove_hooks(self):
+        """Remove all registered hooks."""
+        for h in self._hooks:
+            h.remove()
+        self._hooks.clear()
+
+
+# ============================================================
+# Main
+# ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Evaluation')
-    # Defining arguments
-    # ./data/scienceqa_SD_5/scienceqa_biology_test_SD.json
-    # ./data/scienceqa_RD_5/scienceqa_not_biology_test_RD.json",
-    # ./data/scienceqa_standard_5/scienceqa_biology_train_std.json
-    # ./data/scienceqa_SD_5/scienceqa_biology_physics_test_SD.json
-
-    parser.add_argument('--test_dataset', type=str, default="./data/codellama/SD/sd_torch.json",
-                        help='test_dataset')
-    parser.add_argument('--base_model', type=str, default="codellama/CodeLlama-7b-Instruct-hf", help='base_model')
-    parser.add_argument('--ood_base_model', type=str, default="microsoft/codebert-base", help='base_model')
-    parser.add_argument('--lora_weights', type=str, default= "./SCALE_0.1_seed_0_o_unlearn_lora_checkpoints/lora_forget_torch",
-                        help='lora_model')
-    parser.add_argument('--ood_weights', type=str, default= "./ood_checkpoints_codellama_0/",
-                        help='ood_model')
-    parser.add_argument('--ood_type', type=str, default="_torch",
-                        help='ood type')
-    # biology
-    parser.add_argument('--ood_setting', type=str, default="c",
-                        help='ood setting')
+    parser = argparse.ArgumentParser(description='PROD + OOD Soft-Weighted Inference')
+    parser.add_argument('--test_dataset', type=str, default="./data/codellama/D_test.json",
+                        help='Path to test dataset')
+    parser.add_argument('--base_model', type=str, default="codellama/CodeLlama-7b-hf",
+                        help='Base pretrained model (before PROD training)')
+    parser.add_argument('--prod_model', type=str, default="outputs/models/PROD_lr5e-6/PROD_epoch9_lr5e-6",
+                        help='PROD fine-tuned model path')
+    parser.add_argument('--ood_base_model', type=str, default="microsoft/codebert-base",
+                        help='OOD detector base model (RoBERTa)')
+    parser.add_argument('--ood_weights', type=str, default="./ood_checkpoints_codellama_0/",
+                        help='Path to OOD checkpoint directory')
+    parser.add_argument('--ood_type', type=str, default="_all",
+                        help='OOD type(s), underscore-separated')
     parser.add_argument('--ood_setting_name', type=str, default="codellama",
-                        help='ood setting name')
-    parser.add_argument('--seed', type=int, default=0, help='base_model')
-    # Parsing arguments
+                        help='OOD setting name prefix for checkpoint files')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--load_8bit', action='store_true',
+                        help='Load base model in 8-bit quantization to save VRAM')
     args = parser.parse_args()
+
     set_seed(args.seed)
+
+    # --- Load test data ---
     data_a = json.load(open(args.test_dataset, encoding='utf-8'))
-    base_model = args.base_model
-    max_batch_size = 16 # DEBUGGING!!!
-    lora_weight = args.lora_weights
+    print(f"Test dataset: {args.test_dataset} ({len(data_a)} examples)")
+
+    # --- Parse OOD types ---
     types = args.ood_type.split("_")
-    ood_types = []
-    for i in types:
-        if len(i) > 0:
-            ood_types.append(i)
-    ood_setting = args.ood_setting
-    ood_setting_names = args.ood_setting_name
-    print(args.test_dataset)
-    print(args.base_model)
-    print(args.lora_weights)
-    print(args.ood_weights)
-    print(ood_types)
-    print(ood_setting)
-    print(args.ood_setting_name)
+    ood_types = [t for t in types if len(t) > 0]
+    ood_type_name = "ocsvm"
+    print(f"OOD types: {ood_types}")
 
-    ood_weights = []
-    for i in ood_types:  # "biology", "physics", "chemistry"
-        o_p = args.ood_weights + f"{ood_setting_names}_{i}_ood_{ood_setting_names}"
-        ood_weights.append(o_p)
-    ood_type = "ocsvm"
+    # --- Build OOD weight paths ---
+    ood_weight_paths = []
+    for t in ood_types:
+        o_p = args.ood_weights + f"{args.ood_setting_name}_{t}_ood_{args.ood_setting_name}"
+        ood_weight_paths.append(o_p)
 
-    path = "/".join(lora_weight.split("/")[:-1])
-    if not os.path.exists(path):
-        os.mkdir(path)
-    result_file = path + "/test_noretain_{}_seed{}_oodlora_{}_{}".format(ood_setting,str(args.seed), lora_weight.split("/")[-1],
-                                                args.test_dataset.split("/")[-1])
-    print(result_file)
+    # --- Result file path ---
+    prod_name = os.path.basename(args.prod_model.rstrip("/"))
+    test_name = os.path.basename(args.test_dataset)
+    result_file = f"results_prod_ood_seed{args.seed}_{prod_name}_{test_name}"
+    print(f"Result file: {result_file}")
 
+    # ============================================================
+    # Stage 1: Load models, compute delta-W, register hooks
+    # ============================================================
+    print("\n" + "=" * 60)
+    print("STAGE 1: Model Loading & Delta-W Computation")
+    print("=" * 60)
 
-    load_8bit = False
-    tokenizer = LlamaTokenizer.from_pretrained(base_model, padding_side='left')
-    lora_target_modules = [
-        "q_proj",
-        "v_proj",
-        "k_proj",
-        "o_proj",
-        "gate_proj",
-        "down_proj",
-        "up_proj"
-    ]
-    config = AutoConfig.from_pretrained(base_model)
-    config.lora_target_modules = lora_target_modules
+    print("\n[1a] Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, padding_side='left')
+    # Use unk token as pad (standard for Llama generation)
+    tokenizer.pad_token_id = 0
 
-    orthogonal_loss = False
-    olora_weights = {}
-    config.orthogonal_loss = orthogonal_loss
-    config.orthogonal_loss_weight = 0.1
-    model = LlamaForCausalLM_ood.from_pretrained(
-        base_model,
-        config=config,
-        load_in_8bit=load_8bit,
+    print("[1b] Loading base model...")
+    base_model = AutoModelForCausalLM.from_pretrained(
+        args.base_model,
+        load_in_8bit=args.load_8bit,
         torch_dtype=torch.bfloat16,
         device_map="auto",
     )
-    model = PeftModel.from_pretrained(
-        model,
-        lora_weight,
+
+    print("[1c] Loading PROD model (to CPU)...")
+    prod_model = AutoModelForCausalLM.from_pretrained(
+        args.prod_model,
         torch_dtype=torch.bfloat16,
+        device_map="cpu",
     )
-    model.init_olora(orthogonal_loss=orthogonal_loss, olora_weights=olora_weights)
-    model.init_active_adapters_d(active_adapters_d=['default'])
 
-    print(model.config.pad_token_id, tokenizer.pad_token_id)
-    print(model.config.bos_token_id, tokenizer.bos_token_id)
-    print(model.config.eos_token_id, tokenizer.eos_token_id)
-    # unwind broken decapoda-research config
-    model.config.pad_token_id = tokenizer.pad_token_id = 0  # unk
-    model.config.bos_token_id = 1
-    model.config.eos_token_id = 2
+    print("[1d] Computing delta weights and registering hooks...")
+    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    manager = DeltaWeightManager.compute_and_register(base_model, prod_model, target_modules)
 
-    if not load_8bit:
-        model.half()  # seems to fix bugs for some users.
+    # Free PROD model from memory
+    del prod_model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("[1e] PROD model freed from memory\n")
 
-    model.eval()
-    if torch.__version__ >= "2" and sys.platform != "win32":
-        model = torch.compile(model)
+    # Configure model for generation
+    base_model.config.pad_token_id = 0
+    base_model.config.bos_token_id = 1
+    base_model.config.eos_token_id = 2
+    base_model.eval()
 
+    # ============================================================
+    # Stage 2: Load OOD detector components
+    # ============================================================
+    print("=" * 60)
+    print("STAGE 2: OOD Detector Loading")
+    print("=" * 60)
 
-    ood_base_model = args.ood_base_model
-    ood_tokenizer = RobertaTokenizer.from_pretrained(ood_base_model)
+    ood_tokenizer = RobertaTokenizer.from_pretrained(args.ood_base_model)
     ood_models = []
     ood_clrs = []
     ood_thresholds = []
@@ -298,23 +354,26 @@ def main():
     ood_fea_lists = []
     ood_gmm_w_cls = []
 
-    for i in ood_weights:
-        roberta_path = i + f"_roberta_{ood_type}"
-        ocsvm_path = i + f"_{ood_type}.pkl"
-        threshold_path = i + f"_threshold_{ood_type}.json"
-        mean_list_path = i + f"_mean_list_{ood_type}.pt"
-        precision_list_path = i + f"_precision_list_{ood_type}.pt"
-        fea_list_path = i + f"_fea_list_{ood_type}.pt"
-        gmm_w_path = i + f"_gmm_w_{ood_type}.pkl"
+    for idx, wp in enumerate(ood_weight_paths):
+        roberta_path = wp + f"_roberta_{ood_type_name}"
+        ocsvm_path = wp + f"_{ood_type_name}.pkl"
+        threshold_path = wp + f"_threshold_{ood_type_name}.json"
+        mean_list_path = wp + f"_mean_list_{ood_type_name}.pt"
+        precision_list_path = wp + f"_precision_list_{ood_type_name}.pt"
+        fea_list_path = wp + f"_fea_list_{ood_type_name}.pt"
+        gmm_w_path = wp + f"_gmm_w_{ood_type_name}.pkl"
 
+        print(f"\n  [{idx}] Loading OOD detector: {roberta_path}")
+        ood_models.append(
+            RobertaForSelector_inference(
+                args.ood_base_model, lora_path=roberta_path, projection_dim=100
+            ).to(device)
+        )
 
-        ood_models.append(RobertaForSelector_inference(ood_base_model, lora_path=roberta_path, projection_dim=100).to(device))
-        with open(ocsvm_path, "rb") as input_file:
-            c_lr = pickle.load(input_file)
-        ood_clrs.append(c_lr)
-        with open(gmm_w_path , "rb") as input_file:
-            gmm_w = pickle.load(input_file)
-        ood_gmm_w_cls.append(gmm_w)
+        with open(ocsvm_path, "rb") as f:
+            ood_clrs.append(pickle.load(f))
+        with open(gmm_w_path, "rb") as f:
+            ood_gmm_w_cls.append(pickle.load(f))
         with open(threshold_path) as f:
             threshold = json.load(f)
         ood_thresholds.append(threshold[1])
@@ -324,7 +383,17 @@ def main():
         ood_precision_lists.append(torch.load(precision_list_path, map_location=torch.device(device)))
         ood_fea_lists.append(torch.load(fea_list_path, map_location=torch.device(device)))
 
+    print(f"\n  Loaded {len(ood_models)} OOD detector(s)")
+
+    # ============================================================
+    # Stage 3: Inference loop
+    # ============================================================
+    print("\n" + "=" * 60)
+    print("STAGE 3: Inference")
+    print("=" * 60 + "\n")
+
     max_new_tokens = 128
+    max_batch_size = 16
     save_every = 200
     MAX_PROMPT_LENGTH = 2048
 
@@ -332,13 +401,13 @@ def main():
     num_replacement = 0
     num_mismatch = 0
     results = []
-    outputs = []
+    outputs_list = []
 
     for start_idx in tqdm(range(0, len(data_a), max_batch_size)):
         end_idx = min(start_idx + max_batch_size, len(data_a))
         batch = data_a[start_idx:end_idx]
 
-        # Tạo prompt cho CodeLlama
+        # --- Build prompts for CodeLlama ---
         batch_prompts = []
         batch_meta = []
         for example in batch:
@@ -361,20 +430,29 @@ def main():
                 "alias_dict": example.get("alias dict", {})
             })
 
-        # OOD scoring: dùng trường "function" cho OOD module
-        ood_texts = [example.get('function', example.get('probing input new', '')) for example in batch]
-        ood_input = ood_tokenizer(ood_texts, padding='max_length', truncation=True, max_length=512, return_tensors="pt")
+        # --- OOD Scoring ---
+        ood_texts = [
+            example.get('function', example.get('probing input new', ''))
+            for example in batch
+        ]
+        ood_input = ood_tokenizer(
+            ood_texts, padding='max_length', truncation=True,
+            max_length=512, return_tensors="pt"
+        )
         cur_batch_size = len(batch)
-        # Per-sample max weight across all OOD detectors
         max_ood_per_sample = np.zeros(cur_batch_size)
 
-        for i in range(len(ood_weights)):
-            mah_score = ood_models[i].get_unsup_Mah_score_s(ood_input, ood_mean_lists[i], ood_precision_lists[i], ood_fea_lists[i])[:, 1:]
-            test_score = ood_clrs[i].score_samples(mah_score)  # shape: (cur_batch_size,)
-            w_ood = np.array([obtain_weights(s, ood_gmm_w_cls[i], ood_x0[i]) for s in test_score])
+        for i in range(len(ood_weight_paths)):
+            mah_score = ood_models[i].get_unsup_Mah_score_s(
+                ood_input, ood_mean_lists[i], ood_precision_lists[i], ood_fea_lists[i]
+            )[:, 1:]
+            test_score = ood_clrs[i].score_samples(mah_score)
+            w_ood = np.array([
+                obtain_weights(s, ood_gmm_w_cls[i], ood_x0[i]) for s in test_score
+            ])
             max_ood_per_sample = np.maximum(max_ood_per_sample, w_ood)
 
-        # Log & track per-sample weights
+        # Log per-sample weights
         for w in max_ood_per_sample:
             all_w_res.append(w)
             dic_key = str(w)[:5]
@@ -384,30 +462,38 @@ def main():
                 all_w_res_dic[dic_key] = 1
 
         print("ood_weight per sample: ", max_ood_per_sample)
-        ood_weight_tensor = torch.tensor(max_ood_per_sample, dtype=torch.bfloat16).to(device)
-        model.init_oodweight(ood_weight=[1, ood_weight_tensor])
 
-        # Generate prediction
-        inputs = tokenizer(batch_prompts, padding=True, return_tensors="pt", truncation=True, max_length=MAX_PROMPT_LENGTH)
+        # --- Set OOD weight via delta-W manager ---
+        ood_weight_tensor = torch.tensor(max_ood_per_sample, dtype=torch.bfloat16).to(device)
+        manager.set_weight(ood_weight_tensor)
+
+        # --- Generate ---
+        inputs = tokenizer(
+            batch_prompts, padding=True, return_tensors="pt",
+            truncation=True, max_length=MAX_PROMPT_LENGTH
+        )
         input_ids = inputs["input_ids"].to(device)
 
         with torch.no_grad():
-            generation_output = model.generate(
+            generation_output = base_model.generate(
                 input_ids=input_ids,
                 return_dict_in_generate=True,
                 max_new_tokens=max_new_tokens,
+                temperature=1.0,
+                do_sample=False,
             )
 
-        # Trích xuất phần text sinh ra
+        # --- Extract generated text ---
         input_length = input_ids.shape[1]
         generated_tokens = generation_output.sequences[:, input_length:]
         generated_texts = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
-        # Giải phóng VRAM
+        # --- Free VRAM ---
         del generation_output, input_ids, inputs, ood_input
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+        # --- Evaluate generated outputs ---
         for idx, generated_text in enumerate(generated_texts):
             meta = batch_meta[idx]
 
@@ -417,8 +503,13 @@ def main():
             last_line_of_prompt = meta["code_context"].split('\n')[-1]
             full_line_to_check = last_line_of_prompt + first_line_generated
 
-            is_replacement = check_api_usage(full_line_to_check, meta["replacement_api"], meta["alias_dict"])
-            is_deprecated = any(check_api_usage(full_line_to_check, api, meta["alias_dict"]) for api in meta["deprecated_api"])
+            is_replacement = check_api_usage(
+                full_line_to_check, meta["replacement_api"], meta["alias_dict"]
+            )
+            is_deprecated = any(
+                check_api_usage(full_line_to_check, api, meta["alias_dict"])
+                for api in meta["deprecated_api"]
+            )
 
             record = {
                 "prompt": meta["code_context"],
@@ -435,18 +526,22 @@ def main():
                 num_mismatch += 1
 
             results.append(record)
-            outputs.append(full_line_to_check)
+            outputs_list.append(full_line_to_check)
             print(f"[dep={is_deprecated}, rep={is_replacement}] {full_line_to_check[:120]}")
 
+        # --- Save periodically ---
         if end_idx % save_every == 0 or end_idx == len(data_a):
             total = len(results)
-            print(f"{total}/{len(data_a)}, deprecated: {num_deprecated}, replacement: {num_replacement}, mismatch: {num_mismatch}, saving to {result_file}")
-            data = {}
-            data['total'] = total
-            data['num_deprecated'] = num_deprecated
-            data['num_replacement'] = num_replacement
-            data['num_mismatch'] = num_mismatch
-            # --- Soft-weight summary (only at final save) ---
+            print(f"\n{total}/{len(data_a)}, deprecated: {num_deprecated}, "
+                  f"replacement: {num_replacement}, mismatch: {num_mismatch}, "
+                  f"saving to {result_file}\n")
+            data = {
+                'total': total,
+                'num_deprecated': num_deprecated,
+                'num_replacement': num_replacement,
+                'num_mismatch': num_mismatch,
+            }
+            # Add soft-weight summary at the final save
             if end_idx == len(data_a):
                 n = len(all_w_res)
                 n_zero = sum(1 for w in all_w_res if w == 0)
@@ -457,34 +552,37 @@ def main():
                     'mean': float(np.mean(all_w_res)) if n > 0 else 0,
                     'min': float(min(all_w_res)) if n > 0 else 0,
                     'max': float(max(all_w_res)) if n > 0 else 0,
-                    'lora_not_activated (w=0)': n_zero,
-                    'lora_partial (0<w<1)': n_mid,
-                    'lora_full (w>=1)': n_high,
-                    'lora_activation_rate': round((n - n_zero) / n * 100, 2) if n > 0 else 0,
+                    'delta_w_not_activated (w=0)': n_zero,
+                    'delta_w_partial (0<w<1)': n_mid,
+                    'delta_w_full (w>=1)': n_high,
+                    'activation_rate': round((n - n_zero) / n * 100, 2) if n > 0 else 0,
                     'weight_distribution': dict(all_w_res_dic),
                 }
             data['results'] = results
             with open(result_file, 'w') as f:
                 json.dump(data, f, indent=2, separators=(',', ': '))
+
     # --- Print soft-weight summary ---
     n = len(all_w_res)
     if n > 0:
         n_zero = sum(1 for w in all_w_res if w == 0)
         n_mid = sum(1 for w in all_w_res if 0 < w < 1.0)
         n_high = sum(1 for w in all_w_res if w >= 1.0)
-        print("\n" + "="*60)
-        print("SOFT-WEIGHT SUMMARY (OOD -> LoRA Activation)")
-        print("="*60)
-        print(f"  Total samples:          {n}")
-        print(f"  Mean weight:            {np.mean(all_w_res):.4f}")
-        print(f"  Min / Max:              {min(all_w_res):.4f} / {max(all_w_res):.4f}")
-        print(f"  LoRA NOT activated (w=0): {n_zero} ({n_zero/n*100:.1f}%)")
-        print(f"  LoRA partial (0<w<1):    {n_mid} ({n_mid/n*100:.1f}%)")
-        print(f"  LoRA full (w>=1.0):      {n_high} ({n_high/n*100:.1f}%)")
-        print(f"  LoRA activation rate:    {(n-n_zero)/n*100:.1f}%")
-        print(f"  Weight distribution:     {dict(all_w_res_dic)}")
-        print("="*60)
+        print("\n" + "=" * 60)
+        print("SOFT-WEIGHT SUMMARY (OOD -> Delta-W Activation)")
+        print("=" * 60)
+        print(f"  Total samples:               {n}")
+        print(f"  Mean weight:                 {np.mean(all_w_res):.4f}")
+        print(f"  Min / Max:                   {min(all_w_res):.4f} / {max(all_w_res):.4f}")
+        print(f"  Delta-W NOT activated (w=0):  {n_zero} ({n_zero / n * 100:.1f}%)")
+        print(f"  Delta-W partial (0<w<1):      {n_mid} ({n_mid / n * 100:.1f}%)")
+        print(f"  Delta-W full (w>=1.0):        {n_high} ({n_high / n * 100:.1f}%)")
+        print(f"  Activation rate:              {(n - n_zero) / n * 100:.1f}%")
+        print(f"  Weight distribution:          {dict(all_w_res_dic)}")
+        print("=" * 60)
 
+    # Cleanup
+    manager.remove_hooks()
 
 
 if __name__ == "__main__":
