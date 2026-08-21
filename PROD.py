@@ -223,9 +223,9 @@ def main():
         param.requires_grad = False
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=True)
     except:
-        tokenizer = AutoTokenizer.from_pretrained(custom_args.model_name, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(custom_args.model_name, trust_remote_code=True, use_fast=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
