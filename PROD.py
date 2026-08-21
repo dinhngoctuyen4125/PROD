@@ -165,7 +165,7 @@ class CustomArguments:
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
     train_data_path: str = field(default=None)
-    max_seq_length: int = field(default=1024)
+    max_seq_length: int = field(default=256)
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
     temperature: float = field(default=0)
