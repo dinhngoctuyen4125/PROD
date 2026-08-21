@@ -1,5 +1,5 @@
 """
-eval_prod_ood.py — OOD-Guided Soft-Weighted Inference for PROD
+eval_o3.py — OOD-Guided Soft-Weighted Inference for PROD
 
 Implements the formula at each linear layer:
     output = W_base · x + w(x) × (W_PROD - W_base) · x
@@ -9,7 +9,7 @@ Where w(x) is computed by the OOD detector (RoBERTa + OCSVM + GMM).
 Uses PyTorch forward hooks instead of hacked Transformers files.
 
 Usage:
-    python eval_prod_ood.py \\
+    python eval_o3.py \\
         --base_model codellama/CodeLlama-7b-hf \\
         --prod_model outputs/models/PROD_lr5e-6/PROD_epoch9_lr5e-6 \\
         --test_dataset ./data/codellama/D_test.json \\
