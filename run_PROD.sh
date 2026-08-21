@@ -28,8 +28,4 @@ python PROD.py \
 --learning_rate ${lr} \
 --per_device_train_batch_size 1 \
 --gradient_accumulation_steps 32 \
---logging_steps 1 \
---save_total_limit 2 \
---overwrite_output_dir \
---do_train \
---save_strategy no
+--logging_steps 1
