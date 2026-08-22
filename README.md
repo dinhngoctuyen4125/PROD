@@ -6,6 +6,9 @@
 conda create -n prod python=3.10
 conda activate prod
 pip install -r requirements.txt
+
+pip uninstall -y torch
+pip install torch --index-url https://download.pytorch.org/whl/cu118
 ```
 
 ## 2. Run PROD Training (Unlearning)
