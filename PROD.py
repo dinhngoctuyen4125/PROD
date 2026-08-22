@@ -143,6 +143,7 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
             if (step + 1) % gradient_accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
+                torch.cuda.empty_cache()
 
         if len(train_dataloader) % gradient_accumulation_steps != 0:
             optimizer.step()
@@ -210,12 +211,13 @@ def main():
             ref_model_max_memory[i] = f'{total_memory[i]}GB'
 
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto")
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto", torch_dtype=torch.bfloat16)
     model.config.use_cache = False
     model.config.pretraining_tp = 1
+    model.gradient_checkpointing_enable()
 
     # ------------------
-    ref_model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto")
+    ref_model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto", torch_dtype=torch.bfloat16)
     ref_model.config.use_cache = False
     ref_model.config.pretraining_tp = 1
     ref_model.eval()
