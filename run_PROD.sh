@@ -18,7 +18,7 @@ ModelPath="codellama/CodeLlama-7b-hf"
 DatasetPath="../Data-Collection/codellama/D_forget.json"
 SaveModelPath="outputs/models/PROD_lr${lr}"
 
-/home/ritsu/miniconda3/envs/prod/bin/python PROD.py \
+python PROD.py \
 --model_name ${Model} \
 --model_path ${ModelPath} \
 --output_dir ${SaveModelPath} \
