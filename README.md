@@ -11,17 +11,17 @@ pip install -r requirements.txt
 ## 2. Run PROD Training (Unlearning)
 
 ```bash
-bash run_PROD.sh
+sudo nohup bash run_PROD.sh > logs/run_prod.log 2>&1 &
 ```
 
 ## 3. Train OOD Detector
 
 ```bash
-bash train_ood.sh
+sudo nohup bash train_ood.sh > logs/train_ood.log 2>&1 &
 ```
 
 ## 4. Inference with OOD-Guided Soft Weighting
 
 ```bash
-bash eval_soft_infer.sh
+sudo nohup bash eval_soft_infer.sh > logs/eval_soft_infer.log 2>&1 &
 ```
