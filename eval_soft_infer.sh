@@ -11,7 +11,7 @@
 #SBATCH --mem=128G
 
 BASE_MODEL="codellama/CodeLlama-7b-hf"
-PROD_MODEL="outputs/models/PROD_lr5e-6/PROD_epoch0_lr5e-6"
+PROD_MODEL="outputs/models/PROD_lr5e-6/PROD_epoch0_lr5e-06"
 
 for SEED in 0
 do
