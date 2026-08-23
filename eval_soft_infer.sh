@@ -16,8 +16,8 @@ PROD_MODEL="outputs/models/PROD_lr5e-6/PROD_epoch0_lr5e-6"
 for SEED in 0
 do
     # Eval on D_test.json
-    TESTPATH="./data/codellama/D_test.json"
-    /home/ritsu/miniconda3/envs/prod/bin/python eval_o3.py \
+    TESTPATH="../Data-Collection/codellama/D_test.json"
+    python eval_o3.py \
         --test_dataset ${TESTPATH} \
         --base_model ${BASE_MODEL} \
         --prod_model ${PROD_MODEL} \
