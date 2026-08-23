@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=ood
+#SBATCH --job-name=prod+ood
 #SBATCH --output=logs/output_%j.log
 #SBATCH --error=logs/error_%j.log
 #SBATCH --partition=defq
