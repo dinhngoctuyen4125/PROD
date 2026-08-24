@@ -4,16 +4,80 @@ import argparse
 import csv
 import json
 import logging
+import pickle
 import pprint
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from scipy.stats import norm
 from tqdm.auto import tqdm
 
 from datasets import load_dataset
-from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer
+from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer, RobertaTokenizer
+from src.ood_model_selector import RobertaForSelector_inference
 
 
 set_seed(42)
 MAX_GENERATION_LENGTH = 300
+
+
+# ---- OOD helpers (from eval_o3.py) ----
+
+def gmm_cdf(x, gmm):
+    w = gmm.weights_
+    m = gmm.means_.flatten()
+    s = np.sqrt(gmm.covariances_.flatten())
+    return np.sum([wi * norm.cdf(x, mi, si) for wi, mi, si in zip(w, m, s)])
+
+def obtain_weights(input_x, gmm, x0):
+    cp_x = gmm_cdf(input_x, gmm)
+    cp_sym = gmm_cdf(2 * x0 - input_x, gmm)
+    cp_sum = (1 - max(cp_x, cp_sym) + min(cp_x, cp_sym)) * 10
+    w = math.exp(cp_sum - 2) / (1 + math.exp(cp_sum - 2))
+    if w > 0.9: return 1.2
+    elif 0.3 < w <= 0.4: return w
+    else: return 0
+
+
+class DeltaWeightManager:
+    """Forward-hook hệ thống: output = base_out + w(x) * (W_prod - W_base) · x"""
+    def __init__(self):
+        self.ood_weight = 0
+        self._hooks = []
+
+    @staticmethod
+    def compute_and_register(base_model, prod_model, target_names):
+        mgr = DeltaWeightManager()
+        prod_mods = dict(prod_model.named_modules())
+        cnt = 0
+        for name, base_mod in base_model.named_modules():
+            if not isinstance(base_mod, nn.Linear) or not any(t in name for t in target_names):
+                continue
+            if name not in prod_mods:
+                continue
+            dw = (prod_mods[name].weight.data.cpu() - base_mod.weight.data.cpu()).clone()
+            db = None
+            if base_mod.bias is not None and prod_mods[name].bias is not None:
+                db = (prod_mods[name].bias.data.cpu() - base_mod.bias.data.cpu()).clone()
+            dev, dt = base_mod.weight.device, base_mod.weight.dtype
+            dw = dw.to(device=dev, dtype=dt)
+            if db is not None: db = db.to(device=dev, dtype=dt)
+            base_mod.register_forward_hook(mgr._make_hook(dw, db))
+            cnt += 1
+        print(f"Registered {cnt} delta-W hooks")
+        return mgr
+
+    def _make_hook(self, dw, db):
+        ref = self
+        def hook(mod, inp, out):
+            w = ref.ood_weight
+            if isinstance(w, (int, float)) and w == 0: return out
+            return out + w * F.linear(inp[0], dw, db)
+        return hook
+
+    def set_weight(self, w): self.ood_weight = w
+
 
 
 def sample_code_from_llm(args, prompt, model, tokenizer):
@@ -111,13 +175,44 @@ def load_model_tokenizer(args, model_name, model_path):
 
 
 def generate_code_for_tasks(args, except_tasks, save_file):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # open save file
     f = open(save_file, "a")
     csv_file = save_file.replace(".jsonl", ".csv")
 
-    # load model
-    generate_code_fn, tokenizer = load_model_tokenizer(args, args.model_name, args.model_path)
+    manager = None
+    ood_components = None  # (ood_model, ood_tokenizer, ood_clr, ood_gmm, ood_x0)
+
+    if getattr(args, 'ood_weights', None):
+        # --- PROD+OOD mode: base on GPU, delta-W hooks ---
+        print("\n=== Loading Base + PROD + OOD ===")
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+        tokenizer.pad_token = tokenizer.eos_token
+        base_model = AutoModelForCausalLM.from_pretrained(
+            args.model_name, torch_dtype=torch.bfloat16, device_map="auto", low_cpu_mem_usage=True)
+        prod_model = AutoModelForCausalLM.from_pretrained(
+            args.model_path, torch_dtype=torch.bfloat16, device_map="cpu", low_cpu_mem_usage=True)
+        tgt = ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"]
+        manager = DeltaWeightManager.compute_and_register(base_model, prod_model, tgt)
+        del prod_model; torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        base_model.eval()
+        generate_code_fn = lambda a, p: sample_code_from_llm(a, p, base_model, tokenizer)
+
+        # Load OOD detector
+        ood_tok = RobertaTokenizer.from_pretrained(args.ood_base_model)
+        t = [x for x in args.ood_type.split("_") if x]
+        t = t[0] if t else "all"
+        wp = os.path.join(args.ood_weights, f"{args.ood_setting_name}_{t}_ood_{args.ood_setting_name}")
+        ood_mdl = RobertaForSelector_inference(args.ood_base_model, lora_path=wp+"_roberta_ocsvm", projection_dim=100).to(device)
+        with open(wp+"_ocsvm.pkl","rb") as fp: ood_clr = pickle.load(fp)
+        with open(wp+"_gmm_w_ocsvm.pkl","rb") as fp: ood_gmm = pickle.load(fp)
+        with open(wp+"_threshold_ocsvm.json") as fp: th = json.load(fp)
+        ood_components = (ood_mdl, ood_tok, ood_clr, ood_gmm, th[0])
+        print("OOD detector loaded.")
+    else:
+        # --- Normal mode ---
+        generate_code_fn, tokenizer = load_model_tokenizer(args, args.model_name, args.model_path)
 
     # load dataset
     dataset = load_dataset("openai/openai_humaneval")
@@ -139,6 +234,15 @@ def generate_code_for_tasks(args, except_tasks, save_file):
 
         # construct prompt
         prompt = dataset[i]["prompt"]
+
+        # Set OOD weight if in OOD mode
+        if manager and ood_components:
+            ood_mdl, ood_tok, ood_clr, ood_gmm, ood_x0 = ood_components
+            enc = ood_tok(prompt, padding=True, truncation=True, max_length=512, return_tensors='pt')
+            enc = {k: v.to(device) for k, v in enc.items()}
+            with torch.no_grad():
+                feat = ood_mdl(**enc).cpu().numpy()
+            manager.set_weight(obtain_weights(feat, ood_gmm, ood_x0))
 
         for completion in generate_code_fn(args, prompt):
             # Fix indentation: Tokenizer thường sinh dòng đầu thiếu 1 dấu cách.
@@ -183,7 +287,11 @@ def generate_code_for_tasks(args, except_tasks, save_file):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", default="CodeLlama-7b-hf")
-    parser.add_argument("--model_path", default=None, help="Directory where a pre-trained LLM or fine-tuned LLM is saved. If None, will load from huggingface cache.",)
+    parser.add_argument("--model_path", default=None, help="PROD checkpoint path (full fine-tuned model).")
+    parser.add_argument("--ood_weights", default=None, type=str, help="OOD checkpoint dir. If set, uses PROD+OOD mode.")
+    parser.add_argument("--ood_base_model", default="microsoft/codebert-base", type=str)
+    parser.add_argument("--ood_type", default="_all", type=str)
+    parser.add_argument("--ood_setting_name", default="codellama", type=str)
     parser.add_argument("--dataset", default="HumanEval", type=str)    
     parser.add_argument("--num-samples", default=1, type=int)
     parser.add_argument("--acctual-num-samples", default=1, type=int)

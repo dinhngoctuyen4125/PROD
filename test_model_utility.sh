@@ -11,7 +11,9 @@
 #SBATCH --mem=128G
 
 MODEL="codellama/CodeLlama-7b-hf"
-MODEL_NAME="CodeLlama-7b-hf"
+PROD_MODEL="tummitum/PROD_epoch0_lr5e-06"
+MODEL_NAME="PROD-OOD-CodeLlama-7b"
+OOD_WEIGHTS="./ood_checkpoints_codellama_0/"
 OUTPUT_DIR="outputs/results/model_utility"
 SUFFIX="2026"
 
@@ -19,7 +21,11 @@ export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site
 
 /home/ritsu/miniconda3/envs/prod_eval/bin/python test_model_utility.py \
     --model_name ${MODEL} \
-    --model_path ${MODEL} \
+    --model_path ${PROD_MODEL} \
+    --ood_weights ${OOD_WEIGHTS} \
+    --ood_base_model "microsoft/codebert-base" \
+    --ood_type "_all" \
+    --ood_setting_name "codellama" \
     --dataset "HumanEval" \
     --num-samples 5 \
     --acctual-num-samples 5 \
