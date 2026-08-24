@@ -141,8 +141,23 @@ def generate_code_for_tasks(args, except_tasks, save_file):
         prompt = dataset[i]["prompt"]
 
         for completion in generate_code_fn(args, prompt):
-            if completion.startswith(" ") and ("Llama" in args.model_name):
-                completion = " " + completion
+            # Fix indentation: Tokenizer thường sinh dòng đầu thiếu 1 dấu cách.
+            # Phát hiện indent chuẩn từ prompt và căn chỉnh dòng đầu completion.
+            prompt_lines = prompt.split('\n')
+            expected_indent = 4  # Mặc định cho HumanEval
+            for line in reversed(prompt_lines):
+                if line.strip():
+                    expected_indent = len(line) - len(line.lstrip())
+                    break
+
+            comp_lines = completion.split('\n')
+            for idx, line in enumerate(comp_lines):
+                if line.strip():  # Tìm dòng không trống đầu tiên
+                    actual_indent = len(line) - len(line.lstrip())
+                    if actual_indent < expected_indent:
+                        comp_lines[idx] = ' ' * (expected_indent - actual_indent) + line
+                    break
+            completion = '\n'.join(comp_lines)
 
             output ={
                     "task_id": task_id,
