@@ -208,7 +208,13 @@ def generate_code_for_tasks(args, except_tasks, save_file):
         with open(wp+"_ocsvm.pkl","rb") as fp: ood_clr = pickle.load(fp)
         with open(wp+"_gmm_w_ocsvm.pkl","rb") as fp: ood_gmm = pickle.load(fp)
         with open(wp+"_threshold_ocsvm.json") as fp: th = json.load(fp)
-        ood_components = (ood_mdl, ood_tok, ood_clr, ood_gmm, th[0])
+        
+        # Load additional lists for get_unsup_Mah_score_s
+        ood_mean = torch.load(wp+"_mean_list_ocsvm.pt", map_location=torch.device(device))
+        ood_prec = torch.load(wp+"_precision_list_ocsvm.pt", map_location=torch.device(device))
+        ood_fea = torch.load(wp+"_fea_list_ocsvm.pt", map_location=torch.device(device))
+
+        ood_components = (ood_mdl, ood_tok, ood_clr, ood_gmm, th[0], ood_mean, ood_prec, ood_fea)
         print("OOD detector loaded.")
     else:
         # --- Normal mode ---
@@ -237,12 +243,15 @@ def generate_code_for_tasks(args, except_tasks, save_file):
 
         # Set OOD weight if in OOD mode
         if manager and ood_components:
-            ood_mdl, ood_tok, ood_clr, ood_gmm, ood_x0 = ood_components
+            ood_mdl, ood_tok, ood_clr, ood_gmm, ood_x0, ood_mean, ood_prec, ood_fea = ood_components
             enc = ood_tok(prompt, padding=True, truncation=True, max_length=512, return_tensors='pt')
-            enc = {k: v.to(device) for k, v in enc.items()}
+            
             with torch.no_grad():
-                feat = ood_mdl(**enc).cpu().numpy()
-            manager.set_weight(obtain_weights(feat, ood_gmm, ood_x0))
+                mah_score = ood_mdl.get_unsup_Mah_score_s(enc, ood_mean, ood_prec, ood_fea)[:, 1:]
+            
+            test_score = ood_clr.score_samples(mah_score)
+            w = obtain_weights(test_score[0], ood_gmm, ood_x0)
+            manager.set_weight(w)
 
         for completion in generate_code_fn(args, prompt):
             # Fix indentation: Tokenizer thường sinh dòng đầu thiếu 1 dấu cách.
