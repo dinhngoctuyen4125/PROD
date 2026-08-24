@@ -12,7 +12,7 @@
 
 for SEED in 0
 do
-    /home/ritsu/miniconda3/envs/prod_eval/bin/python train_ood.py \
+    /home/ritsu/miniconda3/envs/prod/bin/python train_ood.py \
         --unlearn_dataset "codellama_all" \
         --ood_dataset "ood_codellama" \
         --base_unlearn_path "../Data-Collection/codellama/D_forget.json" \
