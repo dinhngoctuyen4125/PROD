@@ -25,3 +25,9 @@ sudo nohup bash train_ood.sh > logs/train_ood.log 2>&1 &
 ```bash
 sudo nohup bash eval_soft_infer.sh > logs/eval_soft_infer.log 2>&1 &
 ```
+
+## 5. Test Model Utility (HumanEval)
+
+```bash
+sudo nohup bash test_model_utility.sh > logs/test_model_utility.log 2>&1 &
+```
