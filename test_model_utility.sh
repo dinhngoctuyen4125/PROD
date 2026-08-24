@@ -3,7 +3,7 @@
 #SBATCH --job-name=humaneval
 #SBATCH --output=logs/output_%j.log
 #SBATCH --error=logs/error_%j.log
-#SBATCH --partition=defq
+#SBATCH --partition=gpu
 #SBATCH --qos=short
 #SBATCH --time=24:00:00
 #SBATCH --gres=gpu:1
