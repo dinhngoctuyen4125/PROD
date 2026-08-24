@@ -1,4 +1,4 @@
-from tqdm.auto import tqdm
+from tqdm import tqdm
 import random
 import numpy as np
 from functools import partial
@@ -12,8 +12,17 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, HfArgumentParser,Seq2SeqTrainingArguments
 
 
-# Simple config storage (replaces wandb)
-_config = {}
+import wandb
+wandb.init(project="unlearn_code", name="PROD")
+
+
+def build_prompt(code_context):
+    prompt_text = (
+        f"Complete and output the next line for the following Python function:\n"
+        f"```python\n"
+        f"{code_context}"
+    )
+    return prompt_text
 
 
 def seed_everything(seed=2003):
@@ -31,8 +40,9 @@ def calculate_loss(model_disprefered_logits, ground_truth_distribution, loss_mas
     model_disprefered_distribution = model_disprefered_distribution[..., :-1, :].contiguous()
 
     cross_entropy_loss = -torch.sum(ground_truth_distribution * torch.log(model_disprefered_distribution + 1e-10), dim=-1)
-    # Chỉ tính loss trên phần response (loss_mask=1), bỏ qua prompt (loss_mask=0)
+    # mean_cross_entropy_loss = torch.mean(cross_entropy_loss)
     shifted_loss_mask = loss_mask[..., 1:].contiguous()
+    
     masked_loss = cross_entropy_loss * shifted_loss_mask
     mean_cross_entropy_loss = torch.sum(masked_loss) / (torch.sum(shifted_loss_mask) + 1e-10)
     return mean_cross_entropy_loss
@@ -68,18 +78,17 @@ def get_output_distribution(logits, labels, loss_mask, top_p=0.8, alpha=0.0, tem
 
     with torch.no_grad():
         labels = labels[..., 1:]
-        shifted_loss_mask = loss_mask[..., 1:].bool()
+        shifted_loss_mask = loss_mask[..., 1:].bool() 
 
         copied_logits = logits[..., :-1, :].clone()
 
         labels = labels.long()
-        # Chỉ mask token ở vùng response (shifted_loss_mask=True)
         mask = F.one_hot(labels, num_classes=copied_logits.size(-1)).bool() & shifted_loss_mask.unsqueeze(-1)
         copied_logits = copied_logits.masked_fill(mask, -float('inf'))
 
         filtered_logit = top_p_filtering(copied_logits, top_p=top_p, N=N, max_N=max_N, filter_value=-float('inf'))
 
-        if temperature is None or temperature == 0:
+        if temperature is None:
             scaled_logit = filtered_logit
         else:
             scaled_logit = filtered_logit / temperature
@@ -92,25 +101,17 @@ def get_output_distribution(logits, labels, loss_mask, top_p=0.8, alpha=0.0, tem
     return probs, ground_truth_probs
 
 
-def build_prompt(code_context):
-    prompt_text = (
-        f"Complete and output the next line for the following Python function:\n"
-        f"```python\n"
-        f"{code_context}"
-    )
-    return prompt_text
-
-
-def collate_fn(batch, tokenizer, max_length, device):
+def collate_fn(batch, tokenizer, max_length):
     input_ids = []
     loss_masks = []
 
     for item in batch:
         instruct_prompt = build_prompt(item['probing input'])
         prompt_tokens = tokenizer.encode(instruct_prompt, add_special_tokens=True)
-        response_tokens = tokenizer.encode(item['y_neg'], add_special_tokens=False)
+        
+        response_tokens = tokenizer.encode(item['next line'], add_special_tokens=False)
 
-        # Ghép prompt + response, cắt bớt nếu vượt max_length
+        # Cắt bớt nếu vượt quá max_length
         full_ids = prompt_tokens + response_tokens
         full_ids = full_ids[:max_length]
 
@@ -121,14 +122,16 @@ def collate_fn(batch, tokenizer, max_length, device):
         loss_masks.append(torch.tensor(mask))
 
     # Padding thủ công cho cả batch
-    input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=tokenizer.pad_token_id).to(device)
-    loss_masks = torch.nn.utils.rnn.pad_sequence(loss_masks, batch_first=True, padding_value=0).to(device)
+    input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=tokenizer.pad_token_id)
+    loss_masks = torch.nn.utils.rnn.pad_sequence(loss_masks, batch_first=True, padding_value=0)
+    
+    attention_masks = (input_ids != tokenizer.pad_token_id).long()
 
-    attention_masks = (input_ids != tokenizer.pad_token_id).long().to(device)
-
-    return {'prompt_disprefered_ids': input_ids,
-            'prompt_disprefered_mask': attention_masks,
-            'loss_mask': loss_masks}
+    return {
+        'prompt_disprefered_ids': input_ids,
+        'prompt_disprefered_mask': attention_masks,
+        'loss_mask': loss_masks
+    }
 
 
 def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gradient_accumulation_steps=1, top_p=0.8, temperature=0.8, N=1, max_N=10, alpha=0.0):
@@ -139,9 +142,10 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
         optimizer.zero_grad()
         
         for step, batch in enumerate(tqdm(train_dataloader)):
-            prompt_disprefered_ids = batch['prompt_disprefered_ids']
-            prompt_disprefered_mask = batch['prompt_disprefered_mask']
-            loss_mask = batch['loss_mask']
+            device = next(model.parameters()).device
+            prompt_disprefered_ids = batch['prompt_disprefered_ids'].to(device)
+            prompt_disprefered_mask = batch['prompt_disprefered_mask'].to(device)
+            loss_mask = batch['loss_mask'].to(device)
 
             with torch.no_grad():
                 _, ground_truth_distribution = get_output_distribution(ref_model(prompt_disprefered_ids, attention_mask=prompt_disprefered_mask).logits, 
@@ -157,12 +161,11 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
 
             loss = calculate_loss(model_disprefered_logits, ground_truth_distribution, loss_mask)
             
-            (loss / gradient_accumulation_steps).backward()
+            loss.backward()
 
             if (step + 1) % gradient_accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
-                torch.cuda.empty_cache()
 
         if len(train_dataloader) % gradient_accumulation_steps != 0:
             optimizer.step()
@@ -171,10 +174,10 @@ def train(model, ref_model, tokenizer, optimizer, train_dataloader, epochs=1, gr
         optimizer.zero_grad()
 
         print(f"Epoch [{epoch+1}/10], Loss: {loss.item()}")
-        # wandb.log({'epoch loss': loss.item()})
+        wandb.log({'epoch loss': loss.item()})
 
         # every epoch, save the model
-        output_dir = _config['output_dir'] + "/" + f"PROD_epoch{epoch}_lr{_config['learning_rate']}"
+        output_dir = wandb.config.output_dir + "/" + f"PROD_epoch{epoch}_lr{wandb.config.learning_rate}"
         model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
 
@@ -184,11 +187,11 @@ class CustomArguments:
     model_name: str = field(default='codellama/CodeLlama-7b-hf')
     model_path: str = field(default=None)
     last_checkpoint: str = field(default=None)
-    train_data_path: str = field(default=None)
-    max_seq_length: int = field(default=256)
+    train_data_path: str = field(default='data/forget_set_100')
+    max_seq_length: int = field(default=2048)
     lora_rank: int = field(default=16)
     top_p: float = field(default=0.8)
-    temperature: float = field(default=0)
+    temperature: float = field(default=None)
     N: int = field(default=1)
     max_N: int = field(default=None)
     alpha: float = field(default=0.0)
@@ -200,8 +203,8 @@ def main():
     print(training_args)
     print(custom_args)
 
-    _config.update(vars(training_args))
-    _config.update(vars(custom_args))
+    wandb.config.update(training_args)
+    wandb.config.update(custom_args)
 
     if custom_args.model_path is not None:
         model_path = custom_args.model_path
@@ -239,14 +242,15 @@ def main():
     ref_model = AutoModelForCausalLM.from_pretrained(model_path, device_map = "auto", torch_dtype=torch.bfloat16)
     ref_model.config.use_cache = False
     ref_model.config.pretraining_tp = 1
+    ref_model.gradient_checkpointing_enable()
     ref_model.eval()
     for param in ref_model.parameters():
         param.requires_grad = False
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     except:
-        tokenizer = AutoTokenizer.from_pretrained(custom_args.model_name, trust_remote_code=True, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(custom_args.model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
@@ -260,8 +264,8 @@ def main():
     # use parameters from training_args to set up optimizer
     optimizer = AdamW(model.parameters(), lr=training_args.learning_rate, eps=training_args.adam_epsilon, weight_decay=training_args.weight_decay, betas=(training_args.adam_beta1, training_args.adam_beta2))
 
-    dataset = load_dataset("json", data_files=custom_args.train_data_path, split="train")
-    train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=training_args.per_device_train_batch_size, shuffle=True, collate_fn=partial(collate_fn, tokenizer=tokenizer, max_length=custom_args.max_seq_length, device=device))
+    dataset = load_dataset('json', data_files=custom_args.train_data_path)['train']
+    train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=training_args.per_device_train_batch_size, shuffle=True, collate_fn=partial(collate_fn, tokenizer=tokenizer, max_length=custom_args.max_seq_length))
 
     train(model, 
             ref_model, 

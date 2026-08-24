@@ -6,7 +6,7 @@ import json
 import logging
 import pprint
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from datasets import load_dataset
 from transformers import set_seed, AutoModelForCausalLM, AutoTokenizer
