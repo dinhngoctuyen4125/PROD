@@ -12,7 +12,7 @@
 
 MODEL="codellama/CodeLlama-7b-hf"
 PROD_MODEL="tummitum/PROD_epoch0_lr5e-06"
-MODEL_NAME="PROD-OOD-CodeLlama-7b"
+MODEL_NAME="CodeLlama-7b-hf"
 OOD_WEIGHTS="../SimNPO/ood_checkpoints_codellama_0/"
 OUTPUT_DIR="outputs/results/model_utility"
 SUFFIX="2026"
