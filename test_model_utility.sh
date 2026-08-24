@@ -15,7 +15,7 @@ MODEL_NAME="PROD_epoch0_lr5e-06"
 OUTPUT_DIR="outputs/results/model_utility"
 SUFFIX="2026"
 
-/home/ritsu/miniconda3/envs/prod/bin/python test_model_utility.py \
+/home/ritsu/miniconda3/envs/simnpo/bin/python test_model_utility.py \
     --model_name ${MODEL} \
     --model_path ${MODEL} \
     --dataset "HumanEval" \
