@@ -11,7 +11,7 @@
 #SBATCH --mem=128G
 
 MODEL="codellama/CodeLlama-7b-hf"
-PROD_MODEL="tummitum/PROD_epoch1_lr5e-06"
+PROD_MODEL="tummitum/PROD_epoch2_lr5e-06"
 MODEL_NAME="CodeLlama-7b-hf"
 OOD_WEIGHTS="../SimNPO/ood_checkpoints_codellama_0/"
 OUTPUT_DIR="outputs/results/model_utility"
