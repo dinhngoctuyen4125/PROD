@@ -38,7 +38,7 @@ sudo nohup bash test_model_utility.sh > logs/test_model_utility.log 2>&1 &
 > conda create -n prod_eval python=3.10 -y
 > conda activate prod_eval
 > tail -n +4 requirements.txt | pip install -r /dev/stdin
-> pip install torch==2.5.1
+> pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
 > conda install "mkl<2024.0" -c conda-forge -y
 > ```
 > *(Đừng quên sửa `test_model_utility.sh` trỏ sang `prod_eval` trước khi chạy)*
