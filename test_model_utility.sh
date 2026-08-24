@@ -15,7 +15,7 @@ MODEL_NAME="PROD_epoch0_lr5e-06"
 OUTPUT_DIR="outputs/results/model_utility"
 SUFFIX="2026"
 
-/home/ritsu/miniconda3/envs/prod/bin/python test_model_utility.py \
+/home/ritsu/miniconda3/envs/prod_eval/bin/python test_model_utility.py \
     --model_name ${MODEL} \
     --model_path ${MODEL} \
     --dataset "HumanEval" \
@@ -25,7 +25,7 @@ SUFFIX="2026"
     --output-dir ${OUTPUT_DIR} \
     --output-file-suffix ${SUFFIX}
 
-/home/ritsu/miniconda3/envs/prod/bin/python evaluatre.py \
+/home/ritsu/miniconda3/envs/prod_eval/bin/python evaluatre.py \
     --dataset HumanEval \
     --input_path "${OUTPUT_DIR}/HumanEval_${MODEL_NAME}_temp0.2_toppNone_topkNone_samples5_0shot_${SUFFIX}.jsonl" \
     --truncate \

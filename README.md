@@ -31,3 +31,14 @@ sbatch eval_soft_infer.s
 ```bash
 sudo nohup bash test_model_utility.sh > logs/test_model_utility.log 2>&1 &
 ```
+
+> [!WARNING]  
+> **Lưu ý cho GPU RTX 5090:** Môi trường `prod` mặc định (CUDA 11.8) sẽ bị lỗi `no kernel image` trên card mới. Hãy cài môi trường `prod_eval` riêng biệt bằng các lệnh sau:
+> ```bash
+> conda create -n prod_eval python=3.10 -y
+> conda activate prod_eval
+> tail -n +4 requirements.txt | pip install -r /dev/stdin
+> pip install torch==2.5.1
+> conda install "mkl<2024.0" -c conda-forge -y
+> ```
+> *(Đừng quên sửa `test_model_utility.sh` trỏ sang `prod_eval` trước khi chạy)*
