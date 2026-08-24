@@ -10,10 +10,12 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 
-MODEL="tummitum/PROD_epoch0_lr5e-06"
-MODEL_NAME="PROD_epoch0_lr5e-06"
+MODEL="codellama/CodeLlama-7b-hf"
+MODEL_NAME="CodeLlama-7b-hf"
 OUTPUT_DIR="outputs/results/model_utility"
 SUFFIX="2026"
+
+export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
 /home/ritsu/miniconda3/envs/prod_eval/bin/python test_model_utility.py \
     --model_name ${MODEL} \
