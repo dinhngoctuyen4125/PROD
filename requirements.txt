@@ -1,15 +1,15 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 torch==2.7.1+cu118
-torchvision
+torchvision==0.22.1+cu118
 transformers>=4.44.0,<4.45.0
 accelerate==0.28.0
 peft==0.10.0
 datasets==2.18.0
-evaluate
+evaluate==0.4.6
 scikit-learn==1.4.2
 scipy==1.13.0
 sentencepiece==0.2.0
-tqdm
+tqdm==4.70.0
 numpy==1.26.4
-matplotlib
-wandb
+matplotlib==3.10.9
+wandb==0.28.2
