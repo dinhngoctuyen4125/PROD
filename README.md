@@ -17,7 +17,7 @@ sbatch run_PROD.sh
 
 After finetuning, measure the forget quality:
 ```bash
-sbatch run_forget_quality.sh
+sudo nohup bash run_forget_quality.sh > logs/forget_quality.log 2>&1 &
 ```
 
 ## 3. Train OOD Detector
