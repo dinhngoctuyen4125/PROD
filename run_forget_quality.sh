@@ -18,6 +18,6 @@ export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site
 /home/ritsu/miniconda3/envs/prod_eval/bin/python forget_quality.py \
     --model_path ${PROD_MODEL} \
     --input_file ${INPUT_FILE} \
-    --batch_size 32 \
-    --max_new_tokens 300 \
+    --batch_size 64 \
+    --max_new_tokens 128 \
     --temperature 0.0
