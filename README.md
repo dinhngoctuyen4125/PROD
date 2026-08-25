@@ -8,10 +8,16 @@ conda activate prod
 pip install -r requirements.txt
 ```
 
-## 2. Run PROD Training (Unlearning)
+## 2. PROD Unlearning & Measure Forget Quality
 
+Train the model to unlearn the specified code API:
 ```bash
 sbatch run_PROD.sh
+```
+
+After finetuning, measure the forget quality:
+```bash
+sbatch run_forget_quality.sh
 ```
 
 ## 3. Train OOD Detector
