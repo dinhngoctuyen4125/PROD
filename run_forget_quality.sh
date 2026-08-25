@@ -11,7 +11,7 @@
 #SBATCH --mem=128G
 
 PROD_MODEL="tummitum/PROD_epoch0_lr5e-06"
-INPUT_FILE="../Data-Collection/codellama/D_test.json"
+INPUT_FILE="../Data-Collection/codellama/D_forget.json"
 
 export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
