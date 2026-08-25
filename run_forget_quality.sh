@@ -13,9 +13,9 @@
 PROD_MODEL="tummitum/PROD_epoch0_lr5e-06"
 INPUT_FILE="../Data-Collection/codellama/D_test.json"
 
-export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
-/home/ritsu/miniconda3/envs/prod/bin/python forget_quality.py \
+/home/ritsu/miniconda3/envs/prod_eval/bin/python forget_quality.py \
     --model_path ${PROD_MODEL} \
     --input_file ${INPUT_FILE} \
     --batch_size 32 \
