@@ -29,7 +29,7 @@ sbatch train_ood.sh
 ## 4. Inference with OOD-Guided Soft Weighting
 
 ```bash
-sbatch eval_soft_infer.sh
+sudo nohup bash eval_soft_infer.sh > logs/eval_soft_infer.log 2>&1 &
 ```
 
 ## 5. Test Model Utility (HumanEval)
