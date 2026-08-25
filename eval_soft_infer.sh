@@ -13,7 +13,7 @@
 BASE_MODEL="codellama/CodeLlama-7b-hf"
 TESTPATH="../Data-Collection/codellama/D_test.json"
 
-export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
 for EPOCH in 0 1 2 3 4
 do
@@ -25,7 +25,7 @@ do
 
     for SEED in 0
     do
-        /home/ritsu/miniconda3/envs/prod/bin/python eval_o3.py \
+        /home/ritsu/miniconda3/envs/prod_eval/bin/python eval_o3.py \
             --test_dataset ${TESTPATH} \
             --base_model ${BASE_MODEL} \
             --prod_model ${PROD_MODEL} \
