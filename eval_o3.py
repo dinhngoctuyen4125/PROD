@@ -302,7 +302,7 @@ def main():
     print("=" * 60)
 
     print("\n[1a] Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, padding_side='left')
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, padding_side='left', clean_up_tokenization_spaces=True)
     # Use unk token as pad (standard for Llama generation)
     tokenizer.pad_token_id = 0
 
@@ -393,9 +393,9 @@ def main():
     print("=" * 60 + "\n")
 
     max_new_tokens = 128
-    max_batch_size = 16
+    max_batch_size = 32
     save_every = 200
-    MAX_PROMPT_LENGTH = 2048
+    MAX_PROMPT_LENGTH = 512
 
     num_deprecated = 0
     num_replacement = 0
