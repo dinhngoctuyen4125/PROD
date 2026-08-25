@@ -15,7 +15,7 @@ INPUT_FILE="../Data-Collection/codellama/D_test.json"
 
 export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
-for EPOCH in 1 2 3 4
+for EPOCH in 1 2 3 4 0
 do
     PROD_MODEL="tummitum/PROD_epoch${EPOCH}_lr5e-06"
     echo ""
