@@ -11,7 +11,7 @@
 #SBATCH --mem=128G
 
 BASE_MODEL="codellama/CodeLlama-7b-hf"
-TESTPATH="../Data-Collection/codellama/D_test.json"
+TESTPATH="../Data-Collection/codellama/D_forget.json"
 
 export LD_LIBRARY_PATH=/home/ritsu/miniconda3/envs/prod_eval/lib/python3.10/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
