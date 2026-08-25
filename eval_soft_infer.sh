@@ -15,7 +15,7 @@ TESTPATH="../Data-Collection/codellama/D_test.json"
 
 for EPOCH in 0 1 2 3 4
 do
-    PROD_MODEL="outputs/models/PROD_lr5e-6/PROD_epoch${EPOCH}_lr5e-06"
+    PROD_MODEL="tummitum/PROD_epoch${EPOCH}_lr5e-06"
     echo ""
     echo "============================================"
     echo "  Running epoch ${EPOCH}: ${PROD_MODEL}"

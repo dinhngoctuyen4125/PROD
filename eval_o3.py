@@ -11,7 +11,7 @@ Uses PyTorch forward hooks instead of hacked Transformers files.
 Usage:
     python eval_o3.py \\
         --base_model codellama/CodeLlama-7b-hf \\
-        --prod_model outputs/models/PROD_lr5e-6/PROD_epoch9_lr5e-6 \\
+        --prod_model tummitum/PROD_epoch9_lr5e-06 \\
         --test_dataset ./data/codellama/D_test.json \\
         --ood_weights ./ood_checkpoints_codellama_0/ \\
         --ood_base_model microsoft/codebert-base
@@ -255,7 +255,7 @@ def main():
                         help='Path to test dataset')
     parser.add_argument('--base_model', type=str, default="codellama/CodeLlama-7b-hf",
                         help='Base pretrained model (before PROD training)')
-    parser.add_argument('--prod_model', type=str, default="outputs/models/PROD_lr5e-6/PROD_epoch9_lr5e-6",
+    parser.add_argument('--prod_model', type=str, default="tummitum/PROD_epoch9_lr5e-06",
                         help='PROD fine-tuned model path')
     parser.add_argument('--ood_base_model', type=str, default="microsoft/codebert-base",
                         help='OOD detector base model (RoBERTa)')
