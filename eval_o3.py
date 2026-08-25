@@ -393,7 +393,7 @@ def main():
     print("=" * 60 + "\n")
 
     max_new_tokens = 128
-    max_batch_size = 32
+    max_batch_size = 64
     save_every = 200
     MAX_PROMPT_LENGTH = 512
 
