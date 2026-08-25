@@ -31,7 +31,7 @@ do
             --prod_model ${PROD_MODEL} \
             --seed ${SEED} \
             --ood_type "_all" \
-            --ood_weights "./ood_checkpoints_codellama_${SEED}/" \
+            --ood_weights "../SimNPO/ood_checkpoints_codellama_0/" \
             --ood_base_model "microsoft/codebert-base" \
             --ood_setting_name "codellama"
     done
